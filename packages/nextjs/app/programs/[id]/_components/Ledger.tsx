@@ -27,7 +27,7 @@ export function Merchants({ ctx }: { ctx: ProgramContext }) {
   });
 
   return (
-    <Card title={`Approved merchants (${ctx.merchants.length})`}>
+    <Card title={`Merchants (${ctx.merchants.length})`}>
       {ctx.merchants.length === 0 ? (
         <p className="text-sm opacity-60 m-0">
           {ctx.status === "Closed" ? "All merchants were settled and removed." : "No merchants approved yet."}
