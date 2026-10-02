@@ -1,138 +1,113 @@
 # Agent instructions
 
-Briefing for coding agents in this app (Cursor, Claude Code, Codex). Claude Code loads it through `CLAUDE.md`.
+Briefing for coding agents (Claude Code, Cursor, Codex) working in an Earmark app. Claude Code loads it through
+`CLAUDE.md`. Read `README.md` for the product; this file is about changing the code safely.
 
-This is a Scaffold-HBAR dApp: Next.js App Router, wallet connect, Debug Contracts, and Hedera networks (testnet, mainnet, local fork). The CLI may have left only Hardhat or only Foundry.
+## What this app is
 
-Use the package manager this project was created with (`packageManager` in the root `package.json`, or the lockfile). Examples use `yarn`; if the app was created with npm, swap `yarn <script>` for `npm run <script>`.
+Earmark is purpose-bound money on Hedera. One ownerless contract, `packages/foundry/contracts/Earmark.sol`, hosts
+programs. Each program escrows an HTS stablecoin, creates an HTS voucher token whose KYC/wipe/pause keys are the
+contract, and schedules its own settlement through the Hedera Schedule Service (HIP-1215). Charters and itemised
+receipts are wallet-signed JSON anchored on an HCS topic; their keccak256 hashes are recorded on-chain.
 
-## Which Solidity package
+Three properties are the point of the template. Keep them true in every change:
 
-- `packages/hardhat` exists → Hardhat (`hardhat-deploy`)
-- `packages/foundry` exists → Foundry (Forge scripts)
-- `packages/nextjs` is always the frontend (App Router, RainbowKit, Wagmi, Viem, DaisyUI)
-
-Follow only the flavor that is present.
+1. **Supply equals escrow.** Voucher total supply == `escrowOf(id)` while a program is open. Vouchers are wiped
+   before backing leaves; the voucher has no supply key. `testFuzz_supplyEqualsEscrow` guards this.
+2. **The network enforces the purpose.** Only accounts Earmark granted KYC can hold vouchers. Do not add code paths
+   that move vouchers to accounts without KYC, and do not add a supply or admin key.
+3. **Settlement cannot be blocked.** `settle` must never revert because of something a merchant or funder controls.
+   Rejected payouts go to `owed`; KYC revocation in settlement is best-effort; anyone may call `settle` after expiry.
 
 ## Commands
 
-Package-prefixed scripts for package-specific work. Keep only truly cross-workspace commands unprefixed.
-
 ```bash
-# Local chain + deploy + frontend (separate terminals)
-yarn hardhat:chain    # Hedera-forked Hardhat node on 8545
-yarn hardhat:deploy --network localhost
-yarn foundry:chain    # Anvil from the Foundry package
-yarn foundry:deploy
-yarn next:start       # http://localhost:3000
-
-# Frontend only
-yarn next:dev
-
-# Quality / build
-yarn lint
-yarn format
-yarn next:build
-yarn hardhat:compile
-yarn foundry:compile
-
-# Live networks
-yarn hardhat:deploy --network hederaTestnet   # or hederaMainnet
-yarn foundry:deploy --network hedera_testnet  # or hedera_mainnet
-yarn hardhat:verify -- HederaToken testnet [0xAddress]
-yarn foundry:verify:testnet
-
-# Deployer account
-yarn hardhat:account:generate
-yarn hardhat:account:import
-yarn hardhat:account
+yarn start                                   # Next.js dev server on :3000
+yarn test                                    # forge tests (HTS/HSS emulated, no network)
+yarn lint                                    # forge fmt --check + ESLint
+yarn next:check-types && yarn next:build
+yarn foundry:deploy --network hedera_testnet # then:
+yarn earmark:setup                           # dUSD token + HCS topic (needs operator env)
+yarn earmark:demo                            # full lifecycle on testnet, prints HashScan links
 ```
 
-`yarn hardhat:deploy` without `--network localhost` targets the in-process `hardhat` network, not the long-running fork.
+Run `yarn test`, `yarn lint` and `yarn next:check-types` before finishing any change. Run `yarn earmark:demo` after
+changing contract behaviour that touches HTS or HSS; the mocks cannot prove network behaviour.
 
-## Layout
+Earmark cannot run on a plain Anvil chain: it needs the system contracts at `0x167` (HTS) and `0x16b` (HSS). Deploy to
+Hedera testnet.
 
-### Hardhat
+## Where things live
 
-- Contracts: `packages/hardhat/contracts/`
-- Deploy scripts: `packages/hardhat/deploy/`
-- Tests: `packages/hardhat/test/`
-- Config: `packages/hardhat/hardhat.config.ts`
-- Tagged deploy: if `deployHederaToken.tags = ["HederaToken"]`, run `yarn hardhat:deploy --tags HederaToken`
+| Area | Path |
+| --- | --- |
+| Contract | `packages/foundry/contracts/Earmark.sol` |
+| System-contract interfaces | `packages/foundry/contracts/hedera/` |
+| Tests and emulators | `packages/foundry/test/Earmark.t.sol`, `packages/foundry/test/mocks/` |
+| Deploy script (bytecode only) | `packages/foundry/script/Deploy.s.sol` |
+| Generated ABIs/addresses | `packages/nextjs/contracts/deployedContracts.ts` (do not edit; regenerated on deploy) |
+| HCS document formats | `packages/nextjs/utils/earmark/messages.ts` |
+| Mirror-node reads | `packages/nextjs/utils/earmark/mirror.ts` |
+| HCS anchoring API | `packages/nextjs/app/api/hcs/route.ts` |
+| Server/CLI Hedera SDK client | `packages/nextjs/services/earmark/hcs.ts` |
+| React hooks | `packages/nextjs/hooks/earmark/index.ts` |
+| Pages | `packages/nextjs/app/page.tsx`, `app/programs/new`, `app/programs/[id]` |
+| CLI scripts | `packages/nextjs/scripts/` |
 
-### Foundry
+## Rules that are easy to get wrong on Hedera
 
-- Contracts: `packages/foundry/contracts/`
-- Deploy scripts: `packages/foundry/script/` (`Deploy.s.sol`, `DeployHederaToken.s.sol`, `DeployHtsTokenCreator.s.sol`)
-- Tests: `packages/foundry/test/`
-- Config: `packages/foundry/foundry.toml`
-- One contract: `yarn foundry:deploy --file DeployHederaToken.s.sol`
+- **Gas.** HTS and HSS work is billed as gas that EVM estimation does not see. Every write that touches a token or
+  schedule passes an explicit `gas` from `GAS` in `utils/earmark/abis.ts`. Add an entry when you add such a write; use
+  `useHederaWrite` in the frontend, which requires it.
+- **Response codes.** System-contract calls return an `int64` code; `22` is success. In Solidity, check every code
+  (`_check`) except where settlement must not revert. Add new codes users may hit to `utils/earmark/responseCodes.ts`.
+- **Time.** `block.timestamp` can trail consensus time by up to ~2 s. Anything scheduled to run "at" a time must be
+  scheduled `SETTLEMENT_DELAY` after it.
+- **Scheduled calls.** `msg.sender` inside a scheduled execution is the payer of the transaction that created the
+  schedule, not the contract. Never gate scheduled entry points on `msg.sender`. Schedules expire after 62 days.
+- **Association.** Accounts must associate with a token (HIP-719 `associate()` on the token address, called by the
+  account) before KYC can be granted or tokens received. Contracts cannot associate other accounts.
+- **Addresses.** HTS tokens, schedules and HCS-adjacent entities use long-zero EVM addresses. Convert with
+  `entityIdFromAddress` / `addressFromEntityId` in `utils/earmark/network.ts`; HashScan and the mirror node want
+  `0.0.x` ids.
+- **Mirror node lag.** Mirror data trails consensus by a few seconds. Poll; do not assume a just-mined change is
+  visible.
+- **HCS size.** Keep each envelope ≤ 1,024 bytes (`MAX_HCS_MESSAGE_BYTES`). Extend schemas with that budget in mind.
+- **Secrets.** `HEDERA_OPERATOR_KEY` is server-only. Never import `services/earmark/hcs.ts` from a client component,
+  and never add a `NEXT_PUBLIC_` variable holding a key.
 
-### After deploy
+## Changing the contract
 
-ABIs and addresses are written to `packages/nextjs/contracts/deployedContracts.ts`. Put third-party contracts in `packages/nextjs/contracts/externalContracts.ts`.
+1. Edit `Earmark.sol`; keep it under the 24 KB limit (`forge build --sizes`; the optimizer is on).
+2. Add or update tests in `Earmark.t.sol`. Extend `MockHTS`/`MockHSS` only to mirror real network behaviour, using
+   real response codes — a mock that is more permissive than the network hides bugs.
+3. `yarn test && yarn foundry:lint`.
+4. Redeploy (`yarn foundry:deploy --network hedera_testnet`), which regenerates `deployedContracts.ts`, then
+   `yarn earmark:setup` and `yarn earmark:demo`.
+5. If you change events, update `EVENT_LABELS` in `app/programs/[id]/_components/Ledger.tsx`.
 
-Sample contracts on this starter: `HederaToken` (ERC-20) and `HtsTokenCreator` (HTS precompile at `0x167`).
+## Changing HCS documents
 
-## Frontend contract interaction
+Bump `version` in the schema rather than changing the meaning of an existing field: receipts already on the topic must
+keep verifying. Hashes are over `canonicalize(body)`; signatures are EIP-191 over that hash (`{ message: { raw } }`).
+The API route and the browser must apply the same checks.
 
-Hooks live in `packages/nextjs/hooks/scaffold-hbar`. Use the names that exist in the codebase:
+## Frontend conventions
 
-- `useScaffoldReadContract` — not `useScaffoldContractRead`
-- `useScaffoldWriteContract` — not `useScaffoldContractWrite`
-
-Also: `useScaffoldWatchContractEvent`, `useScaffoldEventHistory`, `useDeployedContractInfo`, `useScaffoldContract`, `useTransactor`.
-
-```typescript
-const { data: balance } = useScaffoldReadContract({
-  contractName: "HederaToken",
-  functionName: "balanceOf",
-  args: [connectedAddress],
-});
-
-const { writeContractAsync, isPending } = useScaffoldWriteContract({
-  contractName: "HederaToken",
-});
-
-await writeContractAsync({
-  functionName: "mint",
-  args: [connectedAddress, parseEther("1")],
-});
-```
-
-`HederaToken.mint` is `onlyOwner`. For HTS creation, `HtsTokenCreator.createToken` is payable (HTS fee via `msg.value`) and emits `TokenCreated`.
-
-### UI
-
-Use `@scaffold-hbar-ui/components` for web3 UI: `Address`, `AddressInput`, `Balance`, `EtherInput`, `IntegerInput`.
-
-Use DaisyUI classes, not raw Tailwind when a DaisyUI component exists:
-
-```tsx
-<button className="btn btn-primary">Connect</button>
-```
-
-### Networks
-
-- Hardhat: `packages/hardhat/hardhat.config.ts` (`hederaTestnet` 296, `hederaMainnet` 295)
-- Foundry: `packages/foundry/foundry.toml` (`hedera_testnet`, `hedera_mainnet`)
-- Next.js: `packages/nextjs/scaffold.config.ts` (target networks, polling, RPC overrides, WalletConnect)
+- Next.js App Router; add `"use client"` to components that use hooks. Pages under `app/`, page-only components in
+  that route's `_components/`.
+- Contract reads: `useScaffoldReadContract` / wagmi `useReadContracts`. Writes: `useHederaWrite` (explicit gas,
+  scaffold transactor notifications, refreshes queries afterwards).
+- Native Hedera state (association, KYC, schedules, topic messages, logs): the hooks in `hooks/earmark`, backed by
+  `utils/earmark/mirror.ts`.
+- Styling: DaisyUI components and Tailwind utilities; shared pieces in `components/earmark/primitives.tsx`.
+- Imports use the `~~/` alias. Prefer `type` over `interface`. Comments explain why, not what.
 
 ## Style
 
 | Style | Use |
 | --- | --- |
-| `UpperCamelCase` | types, components |
+| `UpperCamelCase` | types, components, contracts |
 | `lowerCamelCase` | variables, functions |
 | `CONSTANT_CASE` | constants |
-| `snake_case` | Hardhat deploy files and Foundry scripts |
-
-Next.js imports use the `~~` alias:
-
-```tsx
-import { useTargetNetwork } from "~~/hooks/scaffold-hbar";
-```
-
-App Router pages live under `packages/nextjs/app/`. Add `"use client"` when the page uses hooks.
-
-Prefer `type` over `interface`. No `T` prefix on types. Let TypeScript infer when it can. Comments should add information.
+| `snake_case` | Foundry test names after `test_`, e.g. `test_claim_requiresAssociation` |
