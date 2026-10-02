@@ -22,15 +22,15 @@ export function MerchantPanel({ ctx }: { ctx: ProgramContext }) {
   const redeemable = ctx.role.isMerchant && (ctx.status === "Active" || ctx.status === "Settling");
 
   return (
-    <Card title="Merchant">
+    <Card title="Accept payments">
       <div className="flex flex-col gap-4">
         <div className="flex gap-8 flex-wrap">
           <div>
-            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Vouchers received</p>
+            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Received</p>
             <Amount value={balance} decimals={ctx.decimals} symbol={ctx.symbol} className="text-xl font-semibold" />
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Redeems for</p>
+            <p className="text-xs uppercase tracking-wider opacity-60 m-0">You will be paid</p>
             <Amount
               value={balance}
               decimals={ctx.decimals}
@@ -136,7 +136,7 @@ function ReceiptBuilder({ ctx, balance }: { ctx: ProgramContext; balance: bigint
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="font-semibold m-0">Itemised receipt → redeem</h3>
+      <h3 className="font-semibold m-0">Proof of spend → get paid</h3>
       <p className="text-xs opacity-70 m-0">
         You sign the receipt with your wallet, it is anchored on HCS, and its hash is recorded with the redemption so
         anyone can tie this payout to what was sold.
@@ -183,7 +183,7 @@ function ReceiptBuilder({ ctx, balance }: { ctx: ProgramContext; balance: bigint
         onClick={redeem}
       >
         {busy && <span className="loading loading-spinner loading-xs" />}
-        Sign, anchor &amp; redeem
+        Sign receipt &amp; get paid
       </button>
       {total > balance && <p className="text-xs text-warning m-0">Total exceeds the vouchers you hold.</p>}
     </div>

@@ -18,11 +18,11 @@ export function BeneficiaryPanel({ ctx }: { ctx: ProgramContext }) {
   const open = ctx.status === "Active" && Date.now() / 1000 < Number(program.expiry);
 
   return (
-    <Card title="Beneficiary">
+    <Card title="Your allowance">
       <div className="flex flex-col gap-4">
         <div className="flex gap-8 flex-wrap">
           <div>
-            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Your allocation</p>
+            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Given to you</p>
             <Amount
               value={ctx.role.allocation}
               decimals={ctx.decimals}
@@ -31,11 +31,11 @@ export function BeneficiaryPanel({ ctx }: { ctx: ProgramContext }) {
             />
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Voucher balance</p>
+            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Available to spend</p>
             <Amount value={balance} decimals={ctx.decimals} symbol={ctx.symbol} className="text-xl font-semibold" />
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wider opacity-60 m-0">KYC on voucher</p>
+            <p className="text-xs uppercase tracking-wider opacity-60 m-0">Approved by Hedera (KYC)</p>
             <p className="text-xl font-semibold m-0">{relationship?.kyc ?? "—"}</p>
           </div>
         </div>
@@ -48,7 +48,7 @@ export function BeneficiaryPanel({ ctx }: { ctx: ProgramContext }) {
               disabled={!relationship?.associated || isPending}
               onClick={() => write({ ...ctx.earmark!, functionName: "claim", args: [ctx.id], gas: GAS.claim })}
             >
-              Claim my vouchers
+              Activate my funds
             </button>
           </>
         )}
@@ -123,7 +123,7 @@ function Spend({ ctx, balance }: { ctx: ProgramContext; balance: bigint }) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <h3 className="font-semibold m-0">Try to send it elsewhere</h3>
+        <h3 className="font-semibold m-0">Try to break the rules</h3>
         <p className="text-xs opacity-70 m-0">
           Send one voucher to any account outside the program. The app will not stop you — Hedera will, with
           ACCOUNT_KYC_NOT_GRANTED_FOR_TOKEN.

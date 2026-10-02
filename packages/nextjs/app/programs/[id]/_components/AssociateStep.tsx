@@ -18,15 +18,15 @@ export function AssociateStep({ token, account, symbol }: { token: Address; acco
   return (
     <div className="alert alert-info flex flex-col sm:flex-row items-start sm:items-center gap-3">
       <p className="m-0 text-sm grow">
-        Your account is not associated with {symbol ?? "the voucher"} yet. Hedera accounts opt in to each token they
-        hold.
+        Activate your wallet for {symbol ?? "this program"} first. Hedera accounts opt in to each token they hold
+        (HIP-719 association); it is one transaction.
       </p>
       <button
         className="btn btn-sm btn-primary"
         disabled={isPending}
         onClick={() => write({ address: token, abi: htsTokenAbi, functionName: "associate", gas: GAS.associate })}
       >
-        Associate {symbol}
+        Activate wallet
       </button>
     </div>
   );

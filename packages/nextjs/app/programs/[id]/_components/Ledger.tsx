@@ -122,7 +122,7 @@ export function Receipts({ ctx }: { ctx: ProgramContext }) {
 
   return (
     <Card
-      title="Itemised receipts"
+      title="Proof of spend"
       actions={
         <span className="text-xs opacity-70">
           <ExternalLink href={hashscanUrl(chainId, "topic", topicIdFor(chainId) ?? "")}>HCS topic</ExternalLink>

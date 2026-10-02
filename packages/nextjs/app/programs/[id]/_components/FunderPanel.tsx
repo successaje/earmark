@@ -13,7 +13,7 @@ export function FunderPanel({ ctx }: { ctx: ProgramContext }) {
   if (!open) return null;
 
   return (
-    <Card title="Funder">
+    <Card title="Manage this program">
       <div className="grid gap-6 md:grid-cols-2">
         <Allocate ctx={ctx} />
         <ApproveMerchant ctx={ctx} />
@@ -59,10 +59,10 @@ function Allocate({ ctx }: { ctx: ProgramContext }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="font-semibold m-0">Enrol beneficiaries</h3>
+      <h3 className="font-semibold m-0">Give allowances</h3>
       <p className="text-xs opacity-70 m-0">
         One per line: <code>0xAddress, amount</code>. {formatAmount(available, ctx.decimals)} {ctx.backingSymbol} left
-        to allocate. Beneficiaries then claim from this page.
+        to allocate. Recipients then activate their funds from this page.
       </p>
       <textarea
         className="textarea w-full font-mono text-xs"
@@ -88,10 +88,11 @@ function ApproveMerchant({ ctx }: { ctx: ProgramContext }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="font-semibold m-0">Approve a merchant</h3>
+      <h3 className="font-semibold m-0">Approve where it can be spent</h3>
       <p className="text-xs opacity-70 m-0">
-        Grants the merchant KYC on the voucher so it can receive and redeem. It must associate first, from the
-        &quot;Join&quot; card on this page.
+        Approving a merchant grants it KYC on the program credit, so Hedera lets it receive payments. It must activate
+        its wallet first, from the &quot;Join&quot; card on this page. The category is a label for recipients and
+        auditors: Earmark enforces which merchants are approved, not per-category budgets.
       </p>
       <input
         className="input input-sm w-full font-mono"
