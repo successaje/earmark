@@ -5,6 +5,7 @@ import { hedera, hederaTestnet } from "viem/chains";
 import { type HcsConfig, createOperatorClient, readHcsConfig } from "~~/services/earmark/hcs";
 import { earmarkDeployment, hederaPublicClient } from "~~/utils/earmark/contracts";
 import { hederaNetwork } from "~~/utils/earmark/network";
+import { describeResponseCode, responseCodeFromRevertData } from "~~/utils/earmark/responseCodes";
 
 /** Shared plumbing for the CLI scripts: env loading, operator clients, and transaction helpers that print proof. */
 
@@ -94,8 +95,10 @@ async function mirrorError(hash: Hex): Promise<string> {
   const res = await fetch(`${hederaNetwork(chain.id).mirrorNode}/api/v1/contracts/results/${hash}/actions`);
   if (!res.ok) return "unknown";
   const { actions } = (await res.json()) as { actions: { result_data_type: string; result_data: string }[] };
-  const failure = actions.find(a => a.result_data_type === "ERROR");
-  return failure ? Buffer.from(failure.result_data.slice(2), "hex").toString("utf8") : "contract reverted";
+  const failure = actions.find(a => a.result_data_type !== "OUTPUT");
+  if (!failure) return "contract reverted";
+  const code = responseCodeFromRevertData(failure.result_data);
+  return code === null ? Buffer.from(failure.result_data.slice(2), "hex").toString("utf8") : describeResponseCode(code);
 }
 
 export function sleep(ms: number) {

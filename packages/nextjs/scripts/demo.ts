@@ -34,7 +34,7 @@ const show = (amount: bigint) => `${formatUnits(amount, DECIMALS)} dUSD`;
 const FUND = units(100);
 const ALLOCATION = units(50);
 const SPEND = units(30);
-const PROGRAM_SECONDS = 150;
+const PROGRAM_SECONDS = 300;
 const CREATE_PROGRAM_VALUE = parseEther("30"); // HBAR: token creation fee + settlement reserve, remainder refunded
 
 async function main() {
