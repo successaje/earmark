@@ -1,82 +1,54 @@
-# Foundry package (Hedera)
+# Foundry package — Earmark contracts
 
-Solidity contracts, Forge scripts, and tests for the Hedera EVM.
+| Contract | Purpose |
+| --- | --- |
+| `contracts/Earmark.sol` | Purpose-bound money: escrow, KYC-gated voucher, enrolment, redemption, self-scheduled settlement |
+| `contracts/DemoDollar.sol` | Testnet-only HTS stablecoin with a faucet, so the template runs without USDC |
+| `contracts/hedera/` | Minimal interfaces for the HTS (`0x167`) and HSS (`0x16b`) system contracts, plus response codes |
+
+The root [README](../../README.md) explains the design; [AGENTS.md](../../AGENTS.md) lists the invariants to keep.
 
 ## Setup
 
-Forge dependencies are tracked as git submodules under `packages/foundry/lib`.
-Initialize them from the repo root:
+Libraries are git submodules (forge-std, OpenZeppelin, hedera-forking, solidity-bytes-utils). The scaffold CLI
+installs them; in a plain clone run:
 
 ```bash
 git submodule update --init --recursive
 ```
 
----
+## Test
 
-## Deploy (Foundry)
+```bash
+yarn test          # from the repo root: yarn foundry:test
+```
 
-From the repo root, contract deploys for this package use **`yarn foundry:deploy`** (runs `packages/foundry`’s deploy script). Inside `packages/foundry`, use **`yarn deploy`** (same entrypoint).
+Tests run on a plain local EVM. `test/mocks/MockHTS.sol` and `test/mocks/MockHSS.sol` are etched at the system
+contract addresses and reproduce the behaviour Earmark depends on, returning the network's real response codes:
 
-- **Local (recommended):** Start the shared local chain from the repo root, then deploy with `--network localhost` (RPC `http://127.0.0.1:8545`).
+- KYC checked on sender and recipient, association required before KYC or receipt;
+- key-gated KYC, wipe and pause; pause blocks every operation; the treasury cannot be wiped;
+- `transferFrom` allowances; creation fees taken from `msg.value` with the excess refunded to the caller;
+- schedules recorded with their target second and fired by the test exactly as the network would.
 
-  ```bash
-  yarn hardhat:chain
-  ```
+Network behaviour itself is verified by `yarn earmark:demo`, which runs a full program on testnet.
 
-  In another terminal (from repo root or this package):
+## Deploy
 
-  ```bash
-  yarn foundry:deploy --network localhost
-  ```
+Earmark needs the Hedera system contracts, so deploy to testnet or mainnet — not to Anvil.
 
-  This uses the default keystore `scaffold-hbar-default` where applicable (see `Makefile` / `parseArgs.js`).
-  The deploy flow auto-creates the local `deployments/` directory before writing `deployments/<chainId>.json`.
+```bash
+yarn foundry:account:import                                  # keystore for a funded ECDSA account
+yarn foundry:deploy --network hedera_testnet --keystore <name>
+yarn earmark:setup                                            # create dUSD and the HCS topic
+```
 
-- **Plain Anvil (no Hedera fork):** `yarn chain` inside `packages/foundry` runs plain `anvil`—useful for quick iteration, not for full Hedera/HTS parity.
+`script/Deploy.s.sol` only deploys bytecode. Forge simulates scripts on a local EVM before broadcasting, and calls to
+`0x167`/`0x16b` would fail there; token and topic creation happen in `earmark:setup` against the real network.
+Deploying writes `deployments/<chainId>.json` and regenerates `packages/nextjs/contracts/deployedContracts.ts`.
 
-- **Hedera testnet/mainnet:** Use `yarn foundry:deploy --network hedera_testnet` (or `hedera_mainnet`). You **must** use a keystore whose address is a **Hedera-created account** (created and funded via [Hedera Portal](https://portal.hedera.com) or faucet). If you see `Requested resource not found. address '0x...'`, that address does not exist on Hedera. From the repo root, create or import one with `yarn foundry:account:generate` or `yarn foundry:account:import`, then deploy with `--keystore <name>`. For multi-contract deploys, the Makefile uses `--slow` so each transaction is confirmed before the next (avoids `WRONG_NONCE` on Hedera when both txs are in flight).
+Verify on Sourcify:
 
----
-
-## Tests (Foundry)
-
-- **`yarn test`** inside `packages/foundry` (or `forge test`) – Runs tests on a **local Anvil** chain (no Hedera fork).  
-  - **HederaToken** (ERC-20) tests pass.  
-  - **HtsTokenCreator** (HTS precompile) tests are **skipped** – these need a Hedera fork or live RPC.
-
-- **`yarn test:local`** inside `packages/foundry` (or `forge test --fork-url http://127.0.0.1:8545 --chain-id 296 --ffi`) – Runs tests against whatever serves **JSON-RPC on 127.0.0.1:8545** with **chain id 296**.
-
-  **Local setup:**
-
-  ```bash
-  yarn hardhat:chain
-  ```
-
-  Then in another terminal from the repo root:
-
-  ```bash
-  yarn foundry:test:local
-  ```
-
-  Or from this package: `yarn test:local`.
-
-  This command attaches to the shared local JSON-RPC at `:8545`.
-
-- **`yarn test:testnet`** inside `packages/foundry` – Fork from Hedera testnet RPC (`HEDERA_RPC_URL` or default) with [hedera-forking](https://github.com/hashgraph/hedera-forking) HTS emulation via `htsSetup()` where applicable.
-
-- **`yarn test:mainnet`** inside `packages/foundry` – Fork from Hedera mainnet RPC (read-only / snapshot style checks).
-
----
-
-## Summary
-
-| Command             | Chain        | HederaToken | HtsTokenCreator |
-| ------------------- | ------------ | ----------- | --------------- |
-| `yarn test`         | Anvil        | ✅          | ⏭️ (skipped)    |
-| `yarn test:local`   | Local fork\* | ✅          | ✅              |
-| `yarn test:testnet` | Testnet RPC  | ✅          | ✅              |
-| `yarn test:mainnet` | Mainnet RPC  | ✅          | ✅ (read-only)  |
-
-\* Run `yarn hardhat:chain` from the repo root first.
-
-For more on fork testing with HTS emulation, see [forking the Hedera network for local testing](https://docs.hedera.com/hedera/core-concepts/smart-contracts/forking-hedera-network-for-local-testing).
+```bash
+yarn foundry:verify:testnet <address> contracts/Earmark.sol:Earmark
+```
