@@ -51,6 +51,7 @@ export function useProgram(id: bigint) {
     decimals: (decimals as number | undefined) ?? 6,
     backingSymbol: (backingSymbol as string | undefined) ?? "",
     isLoading: program.isLoading,
+    isError: program.isError,
     refetch: program.refetch,
   };
 }

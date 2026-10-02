@@ -17,6 +17,16 @@ export function ProgramDashboard({ id }: { id: bigint }) {
   const ctx = useProgramContext(id);
 
   if (ctx.isLoading) return <div className="skeleton h-96 w-full" />;
+  if (ctx.isError) {
+    return (
+      <div className="text-center py-16 flex flex-col items-center gap-3">
+        <p className="opacity-70 m-0">Could not reach the Hedera JSON-RPC relay.</p>
+        <button className="btn btn-sm" onClick={() => ctx.refetch()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
   if (!ctx.program) {
     return (
       <div className="text-center py-16 flex flex-col items-center gap-3">
