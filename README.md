@@ -207,7 +207,8 @@ packages/
 │   │   └── hedera/                  # minimal HTS + HSS interfaces and response codes
 │   ├── script/Deploy.s.sol          # deploys bytecode only (see "Deploy your own")
 │   └── test/
-│       ├── Earmark.t.sol            # 35 tests incl. a fuzzed supply == escrow invariant
+│       ├── Earmark.t.sol            # 49 unit and fuzz tests
+│       ├── EarmarkInvariant.t.sol   # handler-based invariants: supply == escrow, backing conserved
 │       └── mocks/                   # HTS and HSS emulators with real response codes
 └── nextjs/
     ├── app/
@@ -245,20 +246,28 @@ Active ──(expiry; network calls settle)──► Settling ──(last mercha
 | `redeem(id, amount, receiptHash)` | merchant | wipe vouchers, receive stablecoin |
 | `settle(id)` | the network (or anyone after expiry) | settle a batch of merchants; close when done |
 | `withdrawOwed(id)` | anyone owed | collect a payout the network rejected during settlement |
+| `withdrawHbar()` | funder | collect an HBAR refund the funder's account rejected at close |
 
-Invariant: while a program is open, the voucher's total supply equals `escrowOf(id)`. Vouchers are wiped before any
-stablecoin leaves, and there is no supply key. The fuzz test checks this.
+Invariants: while a program is open, the voucher's total supply equals `escrowOf(id)`, and every unit of backing that
+ever entered is either still escrowed, paid to a merchant or refunded. Vouchers are wiped before any stablecoin leaves,
+and there is no supply key. `EarmarkInvariant.t.sol` checks both after every step of 256 random runs of claims,
+payments, redemptions and settlement.
+
+Backing must be a fee-free HTS fungible token. `createProgram` rejects tokens with custom fees (they would skim the
+escrow or bill the pool shared by every program) and other programs' vouchers (which get paused at close).
 
 ### Off-chain documents
 
 Charters and receipts (`utils/earmark/messages.ts`) are JSON documents validated with zod, serialised canonically
 (keys sorted) and hashed with keccak256. The author's wallet signs the hash (EIP-191). `POST /api/hcs` re-verifies the
-signature and, for receipts, that the signer is an approved merchant, then submits the message. The topic has no
+signature and, for receipts, that the signer is an approved merchant; it anchors each document once and rate-limits
+each client (in-process state — use a shared store behind multiple instances), then submits the message. The topic has no
 submit key: authorship comes from the signatures, so anyone can verify messages without trusting the server, and the
 server pays the fee without holding the authority. Messages are capped at 1,024 bytes so each one is a single HCS
 chunk.
 
-The dashboard re-checks every receipt in the browser: signature → named merchant, and hash → a `Redeemed` event.
+The dashboard re-checks every receipt in the browser: the signature must recover the named merchant, and a `Redeemed`
+event must carry the receipt's hash from that same merchant for exactly its total.
 
 ## Hedera behaviours this template handles
 
@@ -278,13 +287,16 @@ These are worth knowing before you build anything on HTS and HSS:
   HIP-719 `associate()` on the token address — a contract cannot do it for them.
 - **Contract-created tokens refund unused creation fees** to the creating contract, which is how the reserve is
   measured.
-- **One stuck account must not jam settlement.** A merchant can dissociate from the stablecoin. Settlement never
-  reverts on that: rejected payouts are parked in `owed` for `withdrawOwed`, and KYC revocation is best-effort.
+- **One stuck account must not jam settlement.** A merchant can dissociate from the stablecoin or the voucher, and a
+  funder can be a contract that rejects HBAR. Settlement never reverts on any of it: rejected payouts are parked in
+  `owed`, rejected HBAR refunds in `hbarOwed`, a merchant whose wipe fails is skipped, KYC revocation is best-effort,
+  and HBAR is sent without copying return data. The treasury (the contract itself) can never be approved as a
+  merchant, because HTS refuses to wipe a treasury.
 
 ## Testing
 
 ```bash
-yarn test            # forge test: 35 unit + fuzz tests against HTS/HSS emulators
+yarn test            # forge test: 49 unit/fuzz tests + 2 invariants against HTS/HSS emulators
 yarn lint            # forge fmt --check + ESLint/Prettier
 yarn next:check-types
 yarn next:build
@@ -294,15 +306,16 @@ yarn earmark:demo    # the integration test: the real network, end to end
 The mocks (`packages/foundry/test/mocks`) are etched at `0x167` and `0x16b` and reproduce the behaviour Earmark
 relies on with the network's real response codes: KYC checked on both sides of a transfer, pause blocking every
 operation, wipe refusing the treasury, association required for KYC, allowances for `transferFrom`, and creation fees
-refunded to the caller. Tests fire schedules the way the network does — at their second, from the scheduler — so
-batching, rescheduling and late settlement are all exercised. CI runs all of the above except the demo.
+refunded to the caller, custom-fee schedules, HIP-719 dissociation, and schedule creation that fails or runs out of
+capacity. Tests fire schedules the way the network does — at their second, sent by a relay payer rather than the
+contract — so batching, rescheduling, capacity exhaustion and late settlement are all exercised. CI runs all of the above except the demo.
 
 ## Trust model and limits
 
 - **The funder can:** allocate and deallocate unclaimed vouchers, approve and remove merchants (removal pays the
   merchant first), and extend the expiry.
-- **The funder cannot:** shorten the expiry, mint vouchers, take vouchers back from beneficiaries, or touch the escrow
-  before settlement.
+- **The funder cannot:** shorten the expiry, mint vouchers, take vouchers back from beneficiaries, touch the escrow
+  before settlement, or block settlement (by approving odd merchants, rejecting refunds or anything else).
 - **Earmark has no owner or upgrade path.** Settlement can be triggered by anyone after expiry, so a failed or
   capacity-starved schedule never strands funds.
 - **Beneficiaries can transfer vouchers to each other** (both hold KYC). For strict non-transferability, route

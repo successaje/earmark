@@ -13,11 +13,13 @@ receipts are wallet-signed JSON anchored on an HCS topic; their keccak256 hashes
 Three properties are the point of the template. Keep them true in every change:
 
 1. **Supply equals escrow.** Voucher total supply == `escrowOf(id)` while a program is open. Vouchers are wiped
-   before backing leaves; the voucher has no supply key. `testFuzz_supplyEqualsEscrow` guards this.
+   before backing leaves; the voucher has no supply key; backing tokens with custom fees are rejected.
+   `test/EarmarkInvariant.t.sol` guards this.
 2. **The network enforces the purpose.** Only accounts Earmark granted KYC can hold vouchers. Do not add code paths
    that move vouchers to accounts without KYC, and do not add a supply or admin key.
 3. **Settlement cannot be blocked.** `settle` must never revert because of something a merchant or funder controls.
-   Rejected payouts go to `owed`; KYC revocation in settlement is best-effort; anyone may call `settle` after expiry.
+   Rejected payouts go to `owed`, rejected HBAR refunds to `hbarOwed`, a failed wipe skips the merchant, KYC
+   revocation is best-effort, HBAR is sent without copying return data, and anyone may call `settle` after expiry.
 
 ## Commands
 
@@ -43,12 +45,12 @@ Hedera testnet.
 | --- | --- |
 | Contract | `packages/foundry/contracts/Earmark.sol` |
 | System-contract interfaces | `packages/foundry/contracts/hedera/` |
-| Tests and emulators | `packages/foundry/test/Earmark.t.sol`, `packages/foundry/test/mocks/` |
+| Tests and emulators | `packages/foundry/test/Earmark.t.sol`, `test/EarmarkInvariant.t.sol`, `test/mocks/` |
 | Deploy script (bytecode only) | `packages/foundry/script/Deploy.s.sol` |
 | Generated ABIs/addresses | `packages/nextjs/contracts/deployedContracts.ts` (do not edit; regenerated on deploy) |
 | HCS document formats | `packages/nextjs/utils/earmark/messages.ts` |
 | Mirror-node reads | `packages/nextjs/utils/earmark/mirror.ts` |
-| HCS anchoring API | `packages/nextjs/app/api/hcs/route.ts` |
+| HCS anchoring API (+ dedupe/rate limit) | `packages/nextjs/app/api/hcs/route.ts`, `services/earmark/submissionGuard.ts` |
 | Server/CLI Hedera SDK client | `packages/nextjs/services/earmark/hcs.ts` |
 | React hooks | `packages/nextjs/hooks/earmark/index.ts` |
 | Pages | `packages/nextjs/app/page.tsx`, `app/programs/new`, `app/programs/[id]` |
@@ -79,7 +81,8 @@ Hedera testnet.
 ## Changing the contract
 
 1. Edit `Earmark.sol`; keep it under the 24 KB limit (`forge build --sizes`; the optimizer is on).
-2. Add or update tests in `Earmark.t.sol`. Extend `MockHTS`/`MockHSS` only to mirror real network behaviour, using
+2. Add or update tests in `Earmark.t.sol`; if you add a state-changing entry point, add it to `EarmarkHandler` so the
+   invariants exercise it. Extend `MockHTS`/`MockHSS` only to mirror real network behaviour, using
    real response codes — a mock that is more permissive than the network hides bugs.
 3. `yarn test && yarn foundry:lint`.
 4. Redeploy (`yarn foundry:deploy --network hedera_testnet`), which regenerates `deployedContracts.ts`, then
