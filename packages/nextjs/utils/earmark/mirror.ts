@@ -38,6 +38,53 @@ export async function fetchTokenRelationship(
   return { associated: true, kyc: relationship.kyc_status, balance: BigInt(relationship.balance) };
 }
 
+export type TokenKeys = Record<"admin" | "kyc" | "freeze" | "wipe" | "supply" | "pause" | "feeSchedule", boolean>;
+
+export type TokenInfo = {
+  tokenId: string;
+  keys: TokenKeys;
+  paused: boolean;
+  totalSupply: bigint;
+  maxSupply: bigint;
+  treasury: string;
+};
+
+/** Which keys a token has and whether it is paused: HTS state with no EVM view, so it comes from the mirror node. */
+export async function fetchTokenInfo(chainId: number, token: Address): Promise<TokenInfo | null> {
+  type Key = { key: string } | null;
+  const data = await mirrorGet<{
+    token_id: string;
+    admin_key: Key;
+    kyc_key: Key;
+    freeze_key: Key;
+    wipe_key: Key;
+    supply_key: Key;
+    pause_key: Key;
+    fee_schedule_key: Key;
+    pause_status: string;
+    total_supply: string;
+    max_supply: string;
+    treasury_account_id: string;
+  }>(chainId, `/api/v1/tokens/${entityIdFromAddress(token)}`);
+  if (!data) return null;
+  return {
+    tokenId: data.token_id,
+    keys: {
+      admin: Boolean(data.admin_key),
+      kyc: Boolean(data.kyc_key),
+      freeze: Boolean(data.freeze_key),
+      wipe: Boolean(data.wipe_key),
+      supply: Boolean(data.supply_key),
+      pause: Boolean(data.pause_key),
+      feeSchedule: Boolean(data.fee_schedule_key),
+    },
+    paused: data.pause_status === "PAUSED",
+    totalSupply: BigInt(data.total_supply),
+    maxSupply: BigInt(data.max_supply),
+    treasury: data.treasury_account_id,
+  };
+}
+
 export type ScheduleInfo = {
   scheduleId: string;
   executesAt: number;

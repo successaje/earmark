@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AssociateStep } from "./AssociateStep";
 import { BeneficiaryPanel } from "./BeneficiaryPanel";
 import { FunderPanel } from "./FunderPanel";
+import { DeveloperPanel } from "./Guarantees";
 import { Activity, Merchants, Receipts } from "./Ledger";
 import { MerchantPanel } from "./MerchantPanel";
 import { Overview } from "./Overview";
@@ -56,6 +57,7 @@ export function ProgramDashboard({ id }: { id: bigint }) {
           <Activity ctx={ctx} />
         </div>
       </div>
+      <DeveloperPanel ctx={ctx} />
     </div>
   );
 }

@@ -11,7 +11,13 @@ import {
 } from "~~/hooks/scaffold-hbar";
 import { htsTokenAbi } from "~~/utils/earmark/abis";
 import { PROGRAM_STATUS } from "~~/utils/earmark/contracts";
-import { fetchContractEvents, fetchEnvelopes, fetchSchedule, fetchTokenRelationship } from "~~/utils/earmark/mirror";
+import {
+  fetchContractEvents,
+  fetchEnvelopes,
+  fetchSchedule,
+  fetchTokenInfo,
+  fetchTokenRelationship,
+} from "~~/utils/earmark/mirror";
 import { topicIdFor } from "~~/utils/earmark/network";
 
 const POLL_MS = 5_000;
@@ -64,6 +70,16 @@ export function useTokenRelationship(token: Address | undefined, account: Addres
     queryFn: () => fetchTokenRelationship(chainId, account!, token!),
     enabled: Boolean(token && account && token !== zeroAddress),
     refetchInterval: POLL_MS,
+  });
+}
+
+export function useTokenInfo(token: Address | undefined) {
+  const chainId = useChainId();
+  return useQuery({
+    queryKey: ["earmark", "token-info", chainId, token],
+    queryFn: () => fetchTokenInfo(chainId, token!),
+    enabled: Boolean(token && token !== zeroAddress),
+    refetchInterval: POLL_MS * 2,
   });
 }
 

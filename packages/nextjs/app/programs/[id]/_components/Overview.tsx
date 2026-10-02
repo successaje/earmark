@@ -1,9 +1,11 @@
 "use client";
 
+import { Guarantees } from "./Guarantees";
+import { MoneyFlow } from "./MoneyFlow";
 import type { ProgramContext } from "./useProgramContext";
 import { useQuery } from "@tanstack/react-query";
 import { type Address, type Hex, verifyMessage, zeroAddress } from "viem";
-import { Amount, Card, Check, Countdown, ExternalLink, Stat, StatusBadge } from "~~/components/earmark/primitives";
+import { Card, Check, Countdown, ExternalLink, StatusBadge } from "~~/components/earmark/primitives";
 import { HederaAddress } from "~~/components/scaffold-hbar";
 import { useChainId, useHederaWrite, useProgramEvents, useSchedule } from "~~/hooks/earmark";
 import { useTargetNetwork } from "~~/hooks/scaffold-hbar";
@@ -13,7 +15,7 @@ import { entityIdFromAddress, hashscanUrl, topicIdFor } from "~~/utils/earmark/n
 
 export function Overview({ ctx }: { ctx: ProgramContext }) {
   const { targetNetwork } = useTargetNetwork();
-  const { program, status, name, symbol, decimals, backingSymbol, charter } = ctx;
+  const { program, status, name, symbol, charter } = ctx;
   const chainId = useChainId();
   const charterBody = charter?.envelope.body as Charter | undefined;
 
@@ -29,7 +31,6 @@ export function Overview({ ctx }: { ctx: ProgramContext }) {
   });
 
   if (!program) return null;
-  const outstanding = program.funded - program.redeemed - program.refunded;
 
   return (
     <div className="flex flex-col gap-6">
@@ -39,7 +40,9 @@ export function Overview({ ctx }: { ctx: ProgramContext }) {
           <StatusBadge status={status} />
         </div>
         <div className="flex items-center gap-2 text-sm flex-wrap opacity-80">
-          <span>Program #{ctx.id.toString()} funded by</span>
+          <span>
+            {symbol} · program #{ctx.id.toString()} · funded by
+          </span>
           <HederaAddress address={program.funder} chain={targetNetwork} />
         </div>
         {charterBody ? (
@@ -65,63 +68,13 @@ export function Overview({ ctx }: { ctx: ProgramContext }) {
         )}
       </header>
 
-      <Card>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
-          <Stat label="Escrowed">
-            <Amount value={program.funded} decimals={decimals} symbol={backingSymbol} />
-          </Stat>
-          <Stat label="Allocated">
-            <Amount value={program.allocated} decimals={decimals} />
-          </Stat>
-          <Stat label="Claimed">
-            <Amount value={program.claimed} decimals={decimals} />
-          </Stat>
-          <Stat label="Redeemed" hint="Paid to merchants">
-            <Amount value={program.redeemed} decimals={decimals} />
-          </Stat>
-          <Stat label={status === "Closed" ? "Refunded" : "In circulation"} hint={`${symbol ?? ""} backed 1:1`}>
-            <Amount value={status === "Closed" ? program.refunded : outstanding} decimals={decimals} />
-          </Stat>
-        </div>
-        <FlowBar ctx={ctx} />
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <MoneyFlow ctx={ctx} />
+        <Guarantees ctx={ctx} />
+      </div>
 
       <Settlement ctx={ctx} />
     </div>
-  );
-}
-
-function FlowBar({ ctx }: { ctx: ProgramContext }) {
-  const program = ctx.program!;
-  if (program.funded === 0n) return null;
-  const pct = (v: bigint) => Number((v * 10_000n) / program.funded) / 100;
-  const redeemed = pct(program.redeemed);
-  const refunded = pct(program.refunded);
-  const claimedUnspent = Math.max(0, pct(program.claimed) - redeemed);
-
-  return (
-    <div className="mt-6 flex flex-col gap-2">
-      <div className="flex h-3 rounded-full overflow-hidden bg-base-300">
-        <div className="bg-primary" style={{ width: `${redeemed}%` }} title="Redeemed by merchants" />
-        <div className="bg-secondary/60" style={{ width: `${claimedUnspent}%` }} title="Held by beneficiaries" />
-        <div className="bg-success/70" style={{ width: `${refunded}%` }} title="Refunded to funder" />
-      </div>
-      <div className="flex gap-4 text-xs opacity-70 flex-wrap">
-        <Legend className="bg-primary" label="Redeemed by merchants" />
-        <Legend className="bg-secondary/60" label="Held by beneficiaries" />
-        <Legend className="bg-success/70" label="Refunded to funder" />
-        <Legend className="bg-base-300" label="Escrowed, unclaimed" />
-      </div>
-    </div>
-  );
-}
-
-function Legend({ className, label }: { className: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`h-2 w-2 rounded-full ${className}`} />
-      {label}
-    </span>
   );
 }
 
@@ -141,10 +94,13 @@ function Settlement({ ctx }: { ctx: ProgramContext }) {
     ctx.earmark && write({ ...ctx.earmark, functionName: "settle", args: [ctx.id], gas: GAS.settle });
 
   return (
-    <Card title="Self-settlement">
+    <Card
+      title="Autonomous settlement"
+      actions={<span className="badge badge-outline badge-sm">No keeper required</span>}
+    >
       <div className="grid gap-4 sm:grid-cols-3 text-sm">
         <div className="flex flex-col gap-1">
-          <span className="text-xs uppercase tracking-wider opacity-60">Spending window</span>
+          <span className="text-xs uppercase tracking-wider opacity-60">Can be spent until</span>
           {ctx.status === "Active" && !expired ? (
             <span className="text-xl font-semibold">
               closes in <Countdown to={expiry} />
@@ -156,7 +112,7 @@ function Settlement({ ctx }: { ctx: ProgramContext }) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs uppercase tracking-wider opacity-60">Hedera schedule</span>
+          <span className="text-xs uppercase tracking-wider opacity-60">Scheduled on Hedera</span>
           {schedule ? (
             <>
               <ExternalLink href={hashscanUrl(chainId, "schedule", schedule.scheduleId)}>
@@ -176,7 +132,7 @@ function Settlement({ ctx }: { ctx: ProgramContext }) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs uppercase tracking-wider opacity-60">Voucher token</span>
+          <span className="text-xs uppercase tracking-wider opacity-60">Program credit (HTS token)</span>
           <ExternalLink href={hashscanUrl(chainId, "token", voucherId)}>
             {voucherId} · {ctx.symbol}
           </ExternalLink>
