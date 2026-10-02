@@ -296,7 +296,8 @@ packages/
     ├── app/
     │   ├── page.tsx                 # landing + program list
     │   ├── programs/new/            # charter → approve → createProgram
-    │   ├── programs/[id]/           # dashboard: settlement, role panels, receipts, activity
+    │   ├── programs/[id]/           # money flow, live guarantees, settlement, role panels,
+    │   │                            #   proof of spend, activity, developer view
     │   └── api/hcs/route.ts         # verifies signatures, then anchors on HCS
     ├── hooks/earmark/               # program state, mirror-node queries, HTS-aware writes
     ├── services/earmark/hcs.ts      # Hiero SDK client (server and scripts only)

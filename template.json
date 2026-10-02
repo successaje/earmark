@@ -1,6 +1,6 @@
 {
   "name": "earmark",
-  "description": "Purpose-bound money on Hedera: an HTS stablecoin escrowed into KYC-gated vouchers that only approved merchants can receive, settled automatically at expiry by the Hedera Schedule Service, with signed charters and itemised receipts anchored on HCS.",
+  "description": "Policy-bound money on Hedera: escrow an HTS stablecoin into program credit that only approved accounts can receive (network-enforced HTS KYC), that settles itself at expiry through the Hedera Schedule Service (HIP-1215), and whose spending is proven by wallet-signed receipts anchored on HCS.",
   "version": "1.0.0",
   "create-scaffold-hbar": {
     "capabilities": {
