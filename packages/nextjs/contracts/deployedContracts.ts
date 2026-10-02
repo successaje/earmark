@@ -7,7 +7,7 @@ import { GenericContractsDeclaration } from "~~/utils/scaffold-hbar/contract";
 const deployedContracts = {
   296: {
     Earmark: {
-      address: "0xd87aa441df1430b6ac87dc9b1f0c7c2cd3835661",
+      address: "0xbc1662fd723eea18a044b5e2403f99507558a1ae",
       abi: [
         {
           type: "function",
@@ -412,7 +412,45 @@ const deployedContracts = {
         },
         {
           type: "function",
+          name: "hbarOwed",
+          inputs: [
+            {
+              name: "account",
+              type: "address",
+              internalType: "address",
+            },
+          ],
+          outputs: [
+            {
+              name: "",
+              type: "uint256",
+              internalType: "uint256",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
           name: "isAssociated",
+          inputs: [
+            {
+              name: "token",
+              type: "address",
+              internalType: "address",
+            },
+          ],
+          outputs: [
+            {
+              name: "",
+              type: "bool",
+              internalType: "bool",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
+          name: "isVoucher",
           inputs: [
             {
               name: "token",
@@ -551,6 +589,19 @@ const deployedContracts = {
         },
         {
           type: "function",
+          name: "totalHbarOwed",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "uint256",
+              internalType: "uint256",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
           name: "totalHbarReserve",
           inputs: [],
           outputs: [
@@ -561,6 +612,13 @@ const deployedContracts = {
             },
           ],
           stateMutability: "view",
+        },
+        {
+          type: "function",
+          name: "withdrawHbar",
+          inputs: [],
+          outputs: [],
+          stateMutability: "nonpayable",
         },
         {
           type: "function",
@@ -671,6 +729,25 @@ const deployedContracts = {
         },
         {
           type: "event",
+          name: "HbarOwed",
+          inputs: [
+            {
+              name: "account",
+              type: "address",
+              indexed: true,
+              internalType: "address",
+            },
+            {
+              name: "amount",
+              type: "uint256",
+              indexed: false,
+              internalType: "uint256",
+            },
+          ],
+          anonymous: false,
+        },
+        {
+          type: "event",
           name: "MerchantApproved",
           inputs: [
             {
@@ -709,6 +786,31 @@ const deployedContracts = {
               type: "address",
               indexed: true,
               internalType: "address",
+            },
+          ],
+          anonymous: false,
+        },
+        {
+          type: "event",
+          name: "MerchantSettlementSkipped",
+          inputs: [
+            {
+              name: "id",
+              type: "uint256",
+              indexed: true,
+              internalType: "uint256",
+            },
+            {
+              name: "merchant",
+              type: "address",
+              indexed: true,
+              internalType: "address",
+            },
+            {
+              name: "responseCode",
+              type: "int64",
+              indexed: false,
+              internalType: "int64",
             },
           ],
           anonymous: false,
@@ -882,6 +984,31 @@ const deployedContracts = {
         },
         {
           type: "event",
+          name: "SettlementCapacityExhausted",
+          inputs: [
+            {
+              name: "id",
+              type: "uint256",
+              indexed: true,
+              internalType: "uint256",
+            },
+            {
+              name: "from",
+              type: "uint256",
+              indexed: false,
+              internalType: "uint256",
+            },
+            {
+              name: "to",
+              type: "uint256",
+              indexed: false,
+              internalType: "uint256",
+            },
+          ],
+          anonymous: false,
+        },
+        {
+          type: "event",
           name: "SettlementProgress",
           inputs: [
             {
@@ -966,6 +1093,11 @@ const deployedContracts = {
         },
         {
           type: "error",
+          name: "HbarTransferFailed",
+          inputs: [],
+        },
+        {
+          type: "error",
           name: "HtsFailed",
           inputs: [
             {
@@ -1046,12 +1178,17 @@ const deployedContracts = {
           name: "TooManyMerchants",
           inputs: [],
         },
+        {
+          type: "error",
+          name: "UnsupportedBacking",
+          inputs: [],
+        },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 41271243,
+      deployedOnBlock: 41274034,
     },
     DemoDollar: {
-      address: "0x562117cac1a0c1e900c5170e8c53e9e6503dcd9d",
+      address: "0x72b095d356c16bdf83ed967e4163c7107e821262",
       abi: [
         {
           type: "function",
@@ -1209,7 +1346,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 41271246,
+      deployedOnBlock: 41274037,
     },
   },
 } as const;
