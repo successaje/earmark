@@ -36,6 +36,32 @@ interface IHederaTokenService {
         Expiry expiry;
     }
 
+    struct FixedFee {
+        int64 amount;
+        address tokenId;
+        bool useHbarsForPayment;
+        bool useCurrentTokenForPayment;
+        address feeCollector;
+    }
+
+    struct FractionalFee {
+        int64 numerator;
+        int64 denominator;
+        int64 minimumAmount;
+        int64 maximumAmount;
+        bool netOfTransfers;
+        address feeCollector;
+    }
+
+    struct RoyaltyFee {
+        int64 numerator;
+        int64 denominator;
+        int64 amount;
+        address tokenId;
+        bool useHbarsForPayment;
+        address feeCollector;
+    }
+
     function createFungibleToken(HederaToken memory token, int64 initialTotalSupply, int32 decimals)
         external
         payable
@@ -47,9 +73,7 @@ interface IHederaTokenService {
         external
         returns (int64 responseCode);
 
-    function transferFrom(address token, address from, address to, uint256 amount)
-        external
-        returns (int64 responseCode);
+    function transferFrom(address token, address from, address to, uint256 amount) external returns (int64 responseCode);
 
     function grantTokenKyc(address token, address account) external returns (int64 responseCode);
 
@@ -58,4 +82,13 @@ interface IHederaTokenService {
     function wipeTokenAccount(address token, address account, int64 amount) external returns (int64 responseCode);
 
     function pauseToken(address token) external returns (int64 responseCode);
+
+    function getTokenCustomFees(address token)
+        external
+        returns (
+            int64 responseCode,
+            FixedFee[] memory fixedFees,
+            FractionalFee[] memory fractionalFees,
+            RoyaltyFee[] memory royaltyFees
+        );
 }

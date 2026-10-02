@@ -80,8 +80,14 @@ contract Earmark {
     }
 
     uint256 public programCount;
-    /// @dev Sum of all programs' unspent HBAR reserves; used so one program's refund never touches another's.
+    /// @dev Sum of open programs' HBAR reserves. Schedule execution fees are charged to the contract's balance as a
+    ///      whole, so a program closing while another is mid-settlement may absorb that program's few cents of
+    ///      fees; the refund is capped so it can never take more than the unreserved balance.
     uint256 public totalHbarReserve;
+    /// @notice HBAR refunds a funder could not receive (e.g. a contract without a receive hook). Collected with
+    ///         `withdrawHbar`.
+    mapping(address account => uint256) public hbarOwed;
+    uint256 public totalHbarOwed;
 
     mapping(uint256 id => Program) internal _programs;
     mapping(uint256 id => address[]) internal _merchantList;
@@ -92,6 +98,7 @@ contract Earmark {
     ///         from the backing token). Collected with `withdrawOwed`.
     mapping(uint256 id => mapping(address account => uint64)) public owed;
     mapping(address token => bool) public isAssociated;
+    mapping(address token => bool) public isVoucher;
 
     event ProgramCreated(
         uint256 indexed id,
@@ -104,6 +111,8 @@ contract Earmark {
     );
     event SettlementScheduled(uint256 indexed id, address schedule, uint256 executeAt);
     event SettlementScheduleFailed(uint256 indexed id, int64 responseCode);
+    event SettlementCapacityExhausted(uint256 indexed id, uint256 from, uint256 to);
+    event MerchantSettlementSkipped(uint256 indexed id, address indexed merchant, int64 responseCode);
     event ExpiryExtended(uint256 indexed id, uint64 newExpiry);
     event Allocated(uint256 indexed id, address indexed beneficiary, uint64 amount);
     event Deallocated(uint256 indexed id, address indexed beneficiary, uint64 amount);
@@ -113,6 +122,7 @@ contract Earmark {
     event Redeemed(uint256 indexed id, address indexed merchant, uint64 amount, bytes32 receiptHash);
     event PayoutDeferred(uint256 indexed id, address indexed account, uint64 amount, int64 responseCode);
     event OwedWithdrawn(uint256 indexed id, address indexed account, uint64 amount);
+    event HbarOwed(address indexed account, uint256 amount);
     event SettlementProgress(uint256 indexed id, uint256 processed, uint256 total);
     event ProgramClosed(uint256 indexed id, uint64 redeemed, uint64 refunded, uint256 hbarRefunded);
 
@@ -129,6 +139,8 @@ contract Earmark {
     error TooManyMerchants();
     error OverAllocated();
     error NothingOwed();
+    error UnsupportedBacking();
+    error HbarTransferFailed();
     error HtsFailed(bytes4 op, int64 responseCode);
     error ScheduleFailed(int64 responseCode);
     error NoScheduleCapacity();
@@ -152,6 +164,7 @@ contract Earmark {
                 || params.expiry < block.timestamp + MIN_DURATION || params.expiry > block.timestamp + MAX_DURATION
                 || bytes(params.name).length == 0 || bytes(params.symbol).length == 0
         ) revert InvalidParams();
+        _requireFeeFreeBacking(params.backing);
 
         uint256 balanceBefore = address(this).balance - msg.value;
 
@@ -160,6 +173,8 @@ contract Earmark {
 
         id = ++programCount;
         address voucher = _createVoucher(params, IERC20Metadata(params.backing).decimals(), id);
+
+        isVoucher[voucher] = true;
 
         Program storage p = _programs[id];
         p.funder = msg.sender;
@@ -180,10 +195,7 @@ contract Earmark {
     }
 
     /// @notice Reserve vouchers for beneficiaries. They receive them by calling `claim`.
-    function allocate(uint256 id, address[] calldata beneficiaries, uint64[] calldata amounts)
-        external
-        onlyFunder(id)
-    {
+    function allocate(uint256 id, address[] calldata beneficiaries, uint64[] calldata amounts) external onlyFunder(id) {
         Program storage p = _requireOpen(id);
         if (beneficiaries.length != amounts.length) revert InvalidParams();
 
@@ -215,7 +227,10 @@ contract Earmark {
     ///         voucher token (HIP-719 `associate()` on the token address).
     function approveMerchant(uint256 id, address merchant, bytes32 category) external onlyFunder(id) {
         _requireOpen(id);
-        if (merchant == address(0) || allocationOf[id][merchant] != 0) revert InvalidParams();
+        // The contract is the voucher treasury, and HTS refuses to wipe a treasury: approving it would jam settlement.
+        if (merchant == address(0) || merchant == address(this) || allocationOf[id][merchant] != 0) {
+            revert InvalidParams();
+        }
         if (merchants[id][merchant].approved) revert MerchantExists();
         if (_merchantList[id].length >= MAX_MERCHANTS) revert TooManyMerchants();
 
@@ -302,6 +317,15 @@ contract Earmark {
     // Settlement
     // ---------------------------------------------------------------------
 
+    /// @notice Collect an HBAR refund that could not be sent at close.
+    function withdrawHbar() external {
+        uint256 amount = hbarOwed[msg.sender];
+        if (amount == 0) revert NothingOwed();
+        delete hbarOwed[msg.sender];
+        totalHbarOwed -= amount;
+        if (!_sendHbar(msg.sender, amount)) revert HbarTransferFailed();
+    }
+
     /// @notice Settle an expired program. The network calls this itself via the schedule created in
     ///         `createProgram`; anyone may call it too, so a failed schedule can never strand funds.
     /// @dev Processes up to SETTLE_BATCH merchants per call. Each merchant is paid for its remaining vouchers and
@@ -312,7 +336,8 @@ contract Earmark {
     ///      not this contract, so access control here must not depend on it.
     function settle(uint256 id) external {
         Program storage p = _programs[id];
-        if (p.status == Status.Closed || p.status == Status.None) revert AlreadyClosed();
+        if (p.status == Status.None) revert NotActive();
+        if (p.status == Status.Closed) revert AlreadyClosed();
         if (block.timestamp < p.expiry) revert NotExpired();
 
         p.status = Status.Settling;
@@ -382,9 +407,7 @@ contract Earmark {
             freezeDefault: false,
             tokenKeys: keys,
             expiry: IHederaTokenService.Expiry({
-                second: 0,
-                autoRenewAccount: address(this),
-                autoRenewPeriod: AUTO_RENEW_PERIOD
+                second: 0, autoRenewAccount: address(this), autoRenewPeriod: AUTO_RENEW_PERIOD
             })
         });
 
@@ -394,16 +417,21 @@ contract Earmark {
         return voucher;
     }
 
-    /// @dev Pays a merchant for every voucher it holds and revokes its KYC. Never reverts on account state the
-    ///      merchant controls: a rejected payout is parked in `owed`, and a failed revoke means the merchant has
-    ///      dissociated from the voucher, which already stops it receiving any.
+    /// @dev Pays a merchant for every voucher it holds and revokes its KYC. Never reverts: a rejected wipe skips
+    ///      the merchant (its vouchers die with the pause and their backing is refunded), a rejected payout is
+    ///      parked in `owed`, and a failed revoke means the merchant dissociated, which already stops it receiving.
     function _settleMerchant(uint256 id, Program storage p, address merchant) internal {
         uint256 balance = IERC20Metadata(p.voucher).balanceOf(merchant);
         if (balance > 0) {
             uint64 amount = uint64(balance);
-            _wipe(p, merchant, amount);
-            _payOrOwe(id, p.backing, merchant, amount);
-            emit Redeemed(id, merchant, amount, bytes32(0));
+            int64 rc = HTS.wipeTokenAccount(p.voucher, merchant, _i64(amount));
+            if (rc == HederaResponseCodes.SUCCESS) {
+                p.redeemed += amount;
+                _payOrOwe(id, p.backing, merchant, amount);
+                emit Redeemed(id, merchant, amount, bytes32(0));
+            } else {
+                emit MerchantSettlementSkipped(id, merchant, rc);
+            }
         }
         HTS.revokeTokenKyc(p.voucher, merchant);
         merchants[id][merchant].approved = false;
@@ -431,16 +459,16 @@ contract Earmark {
         p.refunded = refund;
         if (refund > 0) _payOrOwe(id, p.backing, p.funder, refund);
 
-        // Network fees for executed schedules come out of the contract balance, so pay back what is left of
-        // this program's reserve without dipping into any other program's.
         uint256 reserve = p.hbarReserve;
         p.hbarReserve = 0;
         totalHbarReserve -= reserve;
-        uint256 available = address(this).balance > totalHbarReserve ? address(this).balance - totalHbarReserve : 0;
+        uint256 held = totalHbarReserve + totalHbarOwed;
+        uint256 available = address(this).balance > held ? address(this).balance - held : 0;
         uint256 hbarRefund = reserve < available ? reserve : available;
-        if (hbarRefund > 0) {
-            (bool ok,) = p.funder.call{ value: hbarRefund }("");
-            if (!ok) hbarRefund = 0;
+        if (hbarRefund > 0 && !_sendHbar(p.funder, hbarRefund)) {
+            hbarOwed[p.funder] += hbarRefund;
+            totalHbarOwed += hbarRefund;
+            emit HbarOwed(p.funder, hbarRefund);
         }
 
         emit ProgramClosed(id, p.redeemed, refund, hbarRefund);
@@ -454,7 +482,7 @@ contract Earmark {
         while (!HSS.hasScheduleCapacity(executeAt, SETTLE_GAS_LIMIT)) {
             if (++executeAt == limit) {
                 if (strict) revert NoScheduleCapacity();
-                emit SettlementScheduleFailed(id, 0);
+                emit SettlementCapacityExhausted(id, target, limit);
                 return;
             }
         }
@@ -477,6 +505,30 @@ contract Earmark {
             revert HtsFailed(HTS.associateToken.selector, rc);
         }
         isAssociated[token] = true;
+    }
+
+    /// @dev Backing must arrive and leave 1:1. Custom fees would skim escrow (fractional) or bill the shared pool
+    ///      (fixed); another program's voucher would be paused under this one.
+    function _requireFeeFreeBacking(address backing) internal {
+        if (isVoucher[backing]) revert UnsupportedBacking();
+        (
+            int64 rc,
+            IHederaTokenService.FixedFee[] memory fixedFees,
+            IHederaTokenService.FractionalFee[] memory fractionalFees,
+            IHederaTokenService.RoyaltyFee[] memory royaltyFees
+        ) = HTS.getTokenCustomFees(backing);
+        if (
+            rc != HederaResponseCodes.SUCCESS || fixedFees.length > 0 || fractionalFees.length > 0
+                || royaltyFees.length > 0
+        ) revert UnsupportedBacking();
+    }
+
+    /// @dev Forwards all gas but copies no return data, so a receiving contract cannot grief settlement with a
+    ///      return-data bomb; a revert simply reports failure.
+    function _sendHbar(address to, uint256 amount) internal returns (bool ok) {
+        assembly {
+            ok := call(gas(), to, amount, 0, 0, 0, 0)
+        }
     }
 
     function _requireOpen(uint256 id) internal view returns (Program storage p) {
