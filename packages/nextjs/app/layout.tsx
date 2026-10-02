@@ -6,8 +6,8 @@ import "~~/styles/globals.css";
 import { getMetadata } from "~~/utils/scaffold-hbar/getMetadata";
 
 export const metadata = getMetadata({
-  title: "Scaffold-HBAR",
-  description: "Built with Scaffold-HBAR",
+  title: "Earmark",
+  description: "Purpose-bound money on Hedera: vouchers the network enforces, settlements that run themselves.",
 });
 
 const ScaffoldHbarApp = ({ children }: { children: React.ReactNode }) => {
