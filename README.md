@@ -146,7 +146,7 @@ yarn earmark:demo
   ✓ Receipt anchored as message #2 (20 dUSD)
   ✓ Redeem 20 vouchers for dUSD, citing the receipt hash
 6 · Hands off. Waiting for the network to run the scheduled settlement…
-  ✓ Schedule 0.0.10829003 executed at 2026-10-02T17:52:29.053Z
+  ✓ Schedule 0.0.10830515 executed at 2026-10-02T19:37:03.014Z
   ✓ Merchant holds 30 dUSD (20 redeemed by hand + 10 settled automatically)
   ✓ Funder refunded 70 dUSD (unallocated + unspent)
   ✓ Voucher token is PAUSED: the beneficiary's 20 unspent vouchers are void
@@ -329,21 +329,22 @@ Shared deployment used by the template (Hedera testnet):
 
 | What | Id |
 | --- | --- |
-| Earmark contract | [`0.0.10828902`](https://hashscan.io/testnet/contract/0.0.10828902) |
-| DemoDollar faucet | [`0.0.10828905`](https://hashscan.io/testnet/contract/0.0.10828905) · token [`0.0.10828987`](https://hashscan.io/testnet/token/0.0.10828987) |
+| Earmark contract | [`0.0.10830254`](https://hashscan.io/testnet/contract/0.0.10830254) |
+| DemoDollar faucet | [`0.0.10830258`](https://hashscan.io/testnet/contract/0.0.10830258) · token [`0.0.10830483`](https://hashscan.io/testnet/token/0.0.10830483) |
 | HCS topic | [`0.0.10828988`](https://hashscan.io/testnet/topic/0.0.10828988) |
 
 A complete `yarn earmark:demo` run (program #1):
 
 | Step | Proof |
 | --- | --- |
-| `createProgram`: escrow + voucher creation + scheduling | [tx](https://hashscan.io/testnet/transaction/1790963396.413315017) · voucher [`0.0.10829002`](https://hashscan.io/testnet/token/0.0.10829002) · schedule [`0.0.10829003`](https://hashscan.io/testnet/schedule/0.0.10829003) |
-| Beneficiary claims (KYC grant + transfer) | [tx](https://hashscan.io/testnet/transaction/1790963435.016033426) |
-| Merchant approved (KYC grant) | [tx](https://hashscan.io/testnet/transaction/1790963452.631873104) |
-| Transfer to a non-enrolled account, **rejected by the network** | [tx](https://hashscan.io/testnet/transaction/1790963472.313307104) |
-| Beneficiary pays merchant | [tx](https://hashscan.io/testnet/transaction/1790963486.531940564) |
-| Redemption citing an HCS receipt | [tx](https://hashscan.io/testnet/transaction/1790963496.791871104) · [topic](https://hashscan.io/testnet/topic/0.0.10828988) |
-| **Settlement executed by the network**, paid by the contract | [tx](https://hashscan.io/testnet/transaction/1790963549.053363702) |
+| Charter anchored on HCS | [topic message #3](https://hashscan.io/testnet/topic/0.0.10828988) |
+| `createProgram`: escrow + voucher creation + scheduling | [tx](https://hashscan.io/testnet/transaction/1790969523.044402226) · voucher [`0.0.10830514`](https://hashscan.io/testnet/token/0.0.10830514) · schedule [`0.0.10830515`](https://hashscan.io/testnet/schedule/0.0.10830515) |
+| Beneficiary associates (HIP-719) and claims (KYC grant + transfer) | [associate](https://hashscan.io/testnet/transaction/1790969541.704291104) · [claim](https://hashscan.io/testnet/transaction/1790969552.024900675) |
+| Merchant approved (KYC grant) | [tx](https://hashscan.io/testnet/transaction/1790969569.344741234) |
+| Transfer to a non-enrolled account, **rejected by the network** with `ACCOUNT_KYC_NOT_GRANTED_FOR_TOKEN` | [tx](https://hashscan.io/testnet/transaction/1790969589.044793104) |
+| Beneficiary pays merchant | [tx](https://hashscan.io/testnet/transaction/1790969599.904313104) |
+| Redemption citing an itemised HCS receipt (message #4) | [tx](https://hashscan.io/testnet/transaction/1790969615.051066135) |
+| **Settlement executed by the network at expiry, paid by the contract** (`0.0.10830254`) | [tx](https://hashscan.io/testnet/transaction/1790969823.014089141) |
 
 ## Extending it
 
