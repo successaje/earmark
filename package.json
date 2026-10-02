@@ -42,6 +42,7 @@
     "next:start": "yarn workspace @sh/nextjs start",
     "postinstall": "husky",
     "precommit": "lint-staged",
+    "start": "yarn workspace @sh/nextjs dev",
     "test": "yarn foundry:test"
   },
   "packageManager": "yarn@3.2.3",

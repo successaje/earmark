@@ -1,40 +1,62 @@
 {
-  "name": "blank",
-  "description": "Minimal Scaffold-HBAR starter: Next.js, Hardhat or Foundry, sample HTS contracts, no opinionated product UI.",
+  "name": "earmark",
+  "description": "Purpose-bound money on Hedera: an HTS stablecoin escrowed into KYC-gated vouchers that only approved merchants can receive, settled automatically at expiry by the Hedera Schedule Service, with signed charters and itemised receipts anchored on HCS.",
+  "version": "1.0.0",
   "create-scaffold-hbar": {
     "capabilities": {
       "frontend": ["nextjs-app"],
-      "solidityFramework": ["foundry", "hardhat"],
-      "packageManager": ["yarn", "npm"]
+      "solidityFramework": ["foundry"],
+      "packageManager": ["yarn"]
     },
     "defaults": {
       "frontend": "nextjs-app",
       "solidityFramework": "foundry",
       "packageManager": "yarn"
     },
+    "requirements": {
+      "node": ">=20.18.3"
+    },
     "outro": {
       "sections": [
         {
-          "title": "Next steps",
+          "title": "Try it against the shared testnet deployment",
           "steps": [
             {
-              "label": "Generate or import a deployer account",
-              "command": "{run:framework:account:generate}"
+              "label": "Start the app",
+              "command": "yarn start"
             },
             {
-              "label": "Start a local chain",
-              "command": "{run:framework:chain}"
+              "text": "Open http://localhost:3000, connect MetaMask on Hedera Testnet (chain 296) and fund a program. dUSD comes from the built-in faucet."
+            }
+          ]
+        },
+        {
+          "title": "Run the whole lifecycle from the CLI",
+          "steps": [
+            {
+              "label": "Add a funded ECDSA testnet account to packages/nextjs/.env.local",
+              "url": "https://portal.hedera.com"
             },
             {
-              "label": "Deploy contracts to that node",
-              "command": "{run:framework:deploy} --network localhost"
+              "label": "Watch the network settle a program by itself (~6 minutes)",
+              "command": "yarn earmark:demo"
+            }
+          ]
+        },
+        {
+          "title": "Deploy your own",
+          "steps": [
+            {
+              "command": "yarn foundry:account:import"
             },
             {
-              "label": "Start the frontend",
-              "command": "{run:next:dev}"
+              "command": "yarn foundry:deploy --network hedera_testnet"
             },
             {
-              "text": "For Hedera testnet/mainnet deploy and verify, see the Scaffold HBAR docs and your chosen package README under packages/hardhat or packages/foundry."
+              "command": "yarn earmark:setup"
+            },
+            {
+              "text": "README.md walks through every step; AGENTS.md briefs coding agents."
             }
           ]
         }
