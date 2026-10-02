@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import { Test } from "forge-std/Test.sol";
+import { Test, Vm } from "forge-std/Test.sol";
 import { Earmark } from "../contracts/Earmark.sol";
 import { MockHTS, MockHtsToken } from "./mocks/MockHTS.sol";
 import { MockHSS } from "./mocks/MockHSS.sol";
@@ -27,6 +27,8 @@ contract EarmarkTest is Test {
     address internal grocer = makeAddr("grocer");
     address internal pharmacy = makeAddr("pharmacy");
     address internal stranger = makeAddr("stranger");
+    /// @dev On Hedera a scheduled call's msg.sender is the payer of the transaction that created the schedule.
+    address internal relay = makeAddr("relay");
 
     function setUp() public {
         vm.etch(HTS_ADDR, address(new MockHTS()).code);
@@ -445,7 +447,7 @@ contract EarmarkTest is Test {
         // The schedule still fires later; it reverts harmlessly instead of settling twice.
         vm.warp(hss.get(schedule).executeAt);
         hss.markExecuted(schedule);
-        vm.prank(address(earmark));
+        vm.prank(relay);
         vm.expectRevert(Earmark.AlreadyClosed.selector);
         earmark.settle(id);
     }
@@ -468,6 +470,211 @@ contract EarmarkTest is Test {
 
         assertEq(address(earmark).balance, secondReserve);
         assertEq(earmark.totalHbarReserve(), secondReserve);
+    }
+
+    // ------------------------------------------------------------------
+    // Hardening: nothing a participant does can jam settlement
+    // ------------------------------------------------------------------
+
+    function test_approveMerchant_rejectsTheContractItself() public {
+        uint256 id = _createProgram(7 days);
+        vm.prank(funder);
+        vm.expectRevert(Earmark.InvalidParams.selector);
+        earmark.approveMerchant(id, address(earmark), FOOD);
+    }
+
+    function test_approveMerchant_capsAtMaxMerchants() public {
+        uint256 id = _createProgram(7 days);
+        for (uint256 i; i < earmark.MAX_MERCHANTS(); ++i) {
+            _approveMerchant(id, address(uint160(0xB000 + i)));
+        }
+        address oneTooMany = makeAddr("oneTooMany");
+        _associate(_voucher(id), oneTooMany);
+        vm.prank(funder);
+        vm.expectRevert(Earmark.TooManyMerchants.selector);
+        earmark.approveMerchant(id, oneTooMany, FOOD);
+    }
+
+    function test_removeMerchant_canBeApprovedAgain() public {
+        uint256 id = _createProgram(7 days);
+        _approveMerchant(id, grocer);
+        vm.startPrank(funder);
+        earmark.removeMerchant(id, grocer);
+        earmark.approveMerchant(id, grocer, FOOD);
+        vm.stopPrank();
+        (bool approved,) = earmark.merchants(id, grocer);
+        assertTrue(approved);
+        assertEq(earmark.getMerchants(id).length, 1);
+    }
+
+    function test_createProgram_rejectsBackingWithCustomFees() public {
+        hts.setCustomFees(address(usd), true);
+        _approveFunding(FUND);
+        Earmark.CreateParams memory params = _params(uint64(block.timestamp + 7 days));
+        params.backing = address(usd);
+        vm.prank(funder);
+        vm.expectRevert(Earmark.UnsupportedBacking.selector);
+        earmark.createProgram{ value: CREATE_VALUE }(params);
+    }
+
+    function test_createProgram_rejectsAnotherProgramsVoucherAsBacking() public {
+        address voucher = _voucher(_createProgram(7 days));
+        Earmark.CreateParams memory params = _params(uint64(block.timestamp + 7 days));
+        params.backing = voucher;
+        vm.prank(funder);
+        vm.expectRevert(Earmark.UnsupportedBacking.selector);
+        earmark.createProgram{ value: CREATE_VALUE }(params);
+    }
+
+    function test_redeem_stillWorksWhileSettling() public {
+        uint256 id = _createProgram(7 days);
+        uint256 merchantCount = earmark.SETTLE_BATCH() + 1;
+        _allocateAndClaim(id, alice, uint64(merchantCount) * 1e6);
+        MockHtsToken voucherToken = MockHtsToken(_voucher(id));
+        address last;
+        for (uint256 i; i < merchantCount; ++i) {
+            last = address(uint160(0xC000 + i));
+            _approveMerchant(id, last);
+            _associate(address(usd), last);
+            vm.prank(alice);
+            voucherToken.transfer(last, 1e6);
+        }
+
+        _fire(earmark.getProgram(id).schedule);
+        assertEq(uint8(earmark.getProgram(id).status), uint8(Earmark.Status.Settling));
+
+        vm.prank(last);
+        earmark.redeem(id, 1e6, keccak256("late receipt"));
+        assertEq(usd.balanceOf(last), 1e6);
+    }
+
+    function test_settle_dissociatedMerchantDoesNotBlock() public {
+        uint256 id = _createProgram(7 days);
+        _spend(id, alice, grocer, 10e6);
+        vm.prank(grocer);
+        earmark.redeem(id, 10e6, bytes32(0));
+        vm.prank(grocer);
+        MockHtsToken(_voucher(id)).dissociate(); // KYC revoke at settlement will now fail
+
+        _fire(earmark.getProgram(id).schedule);
+        assertEq(uint8(earmark.getProgram(id).status), uint8(Earmark.Status.Closed));
+    }
+
+    function test_settle_rejectedFunderRefundIsOwed() public {
+        address leanFunder = makeAddr("leanFunder");
+        _associate(address(usd), leanFunder);
+        vm.prank(address(this));
+        usd.transfer(leanFunder, FUND);
+        vm.deal(leanFunder, CREATE_VALUE);
+        vm.prank(leanFunder);
+        usd.approve(address(earmark), FUND);
+        Earmark.CreateParams memory params = _params(uint64(block.timestamp + 7 days));
+        params.backing = address(usd);
+        vm.prank(leanFunder);
+        uint256 id = earmark.createProgram{ value: CREATE_VALUE }(params);
+        vm.prank(leanFunder);
+        usd.dissociate(); // zero balance after funding, so the refund will bounce
+
+        _fire(earmark.getProgram(id).schedule);
+        assertEq(earmark.owed(id, leanFunder), FUND);
+
+        _associate(address(usd), leanFunder);
+        vm.prank(leanFunder);
+        earmark.withdrawOwed(id);
+        assertEq(usd.balanceOf(leanFunder), FUND);
+    }
+
+    function test_settle_rejectedHbarRefundIsOwed() public {
+        HbarRejectingFunder contractFunder = new HbarRejectingFunder(earmark, usd);
+        _associate(address(usd), address(contractFunder));
+        vm.prank(address(this));
+        usd.transfer(address(contractFunder), FUND);
+        vm.deal(address(contractFunder), CREATE_VALUE);
+        uint256 id = contractFunder.fund(address(usd), FUND, uint64(block.timestamp + 7 days), CREATE_VALUE);
+
+        _fire(earmark.getProgram(id).schedule);
+        uint256 owedHbar = CREATE_VALUE - hts.CREATE_FEE();
+        assertEq(earmark.hbarOwed(address(contractFunder)), owedHbar);
+        assertEq(earmark.totalHbarOwed(), owedHbar);
+
+        contractFunder.acceptHbar();
+        contractFunder.withdrawHbar();
+        assertEq(address(contractFunder).balance, owedHbar);
+        assertEq(earmark.totalHbarOwed(), 0);
+    }
+
+    function test_settle_continuationWithoutCapacityIsLeftToAnyone() public {
+        uint256 id = _createProgram(7 days);
+        uint256 merchantCount = earmark.SETTLE_BATCH() + 1;
+        _allocateAndClaim(id, alice, uint64(merchantCount));
+        for (uint256 i; i < merchantCount; ++i) {
+            _approveMerchant(id, address(uint160(0xD000 + i)));
+        }
+        uint256 firstRun = hss.get(earmark.getProgram(id).schedule).executeAt;
+        uint256 next = firstRun + earmark.SETTLEMENT_DELAY();
+        for (uint256 i; i < 30; ++i) {
+            hss.setFull(next + i, true);
+        }
+
+        vm.recordLogs();
+        _fire(earmark.getProgram(id).schedule);
+        assertTrue(_emitted(Earmark.SettlementCapacityExhausted.selector));
+        assertEq(earmark.getProgram(id).schedule, address(0));
+
+        vm.prank(stranger);
+        earmark.settle(id);
+        assertEq(uint8(earmark.getProgram(id).status), uint8(Earmark.Status.Closed));
+    }
+
+    function test_scheduleFailures_revertCreationButNotSettlement() public {
+        hss.forceResponse(201);
+        _approveFunding(FUND);
+        Earmark.CreateParams memory params = _params(uint64(block.timestamp + 7 days));
+        params.backing = address(usd);
+        vm.prank(funder);
+        vm.expectRevert(abi.encodeWithSelector(Earmark.ScheduleFailed.selector, int64(201)));
+        earmark.createProgram{ value: CREATE_VALUE }(params);
+
+        hss.forceResponse(0);
+        uint256 id = _createProgram(7 days);
+        uint256 merchantCount = earmark.SETTLE_BATCH() + 1;
+        for (uint256 i; i < merchantCount; ++i) {
+            _approveMerchant(id, address(uint160(0xE000 + i)));
+        }
+        hss.forceResponse(201);
+        vm.recordLogs();
+        _fire(earmark.getProgram(id).schedule);
+        assertTrue(_emitted(Earmark.SettlementScheduleFailed.selector));
+        assertEq(uint8(earmark.getProgram(id).status), uint8(Earmark.Status.Settling));
+    }
+
+    function test_settle_unknownProgramReverts() public {
+        vm.expectRevert(Earmark.NotActive.selector);
+        earmark.settle(42);
+    }
+
+    function test_extendExpiry_guards() public {
+        uint256 id = _createProgram(7 days);
+        vm.prank(stranger);
+        vm.expectRevert(Earmark.NotFunder.selector);
+        earmark.extendExpiry(id, uint64(block.timestamp + 8 days));
+
+        vm.prank(funder);
+        vm.expectRevert(Earmark.InvalidParams.selector);
+        earmark.extendExpiry(id, uint64(block.timestamp + 61 days));
+
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(funder);
+        vm.expectRevert(Earmark.Expired.selector);
+        earmark.extendExpiry(id, uint64(block.timestamp + 1 days));
+    }
+
+    function test_deallocate_afterClaimReverts() public {
+        uint256 id = _createProgram(7 days);
+        _allocateAndClaim(id, alice, 10e6);
+        vm.prank(funder);
+        vm.expectRevert(Earmark.NothingToClaim.selector);
+        earmark.deallocate(id, alice);
     }
 
     // ------------------------------------------------------------------
@@ -546,12 +753,7 @@ contract EarmarkTest is Test {
 
     function _params(uint64 expiry) internal pure returns (Earmark.CreateParams memory) {
         return Earmark.CreateParams({
-            backing: address(0),
-            amount: FUND,
-            expiry: expiry,
-            name: "Food Aid",
-            symbol: "eFOOD",
-            charterHash: CHARTER
+            backing: address(0), amount: FUND, expiry: expiry, name: "Food Aid", symbol: "eFOOD", charterHash: CHARTER
         });
     }
 
@@ -618,17 +820,58 @@ contract EarmarkTest is Test {
         voucherToken.transfer(merchant, amount);
     }
 
-    /// @dev Replays a schedule the way the network executes it: at its second, from the contract that created it.
+    function _emitted(bytes32 topic0) internal returns (bool) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length > 0 && logs[i].topics[0] == topic0) return true;
+        }
+        return false;
+    }
+
+    /// @dev Replays a schedule the way the network executes it: at its second, sent by the original payer.
     function _fire(address schedule) internal {
         MockHSS.Schedule memory s = hss.get(schedule);
         if (block.timestamp < s.executeAt) vm.warp(s.executeAt);
         hss.markExecuted(schedule);
-        vm.prank(s.creator);
+        vm.prank(relay);
         (bool ok, bytes memory ret) = s.to.call{ gas: s.gasLimit }(s.callData);
         if (!ok) {
             assembly {
                 revert(add(ret, 32), mload(ret))
             }
         }
+    }
+}
+
+/// @dev A funder that is a contract and refuses HBAR until told otherwise.
+contract HbarRejectingFunder {
+    Earmark internal immutable EARMARK;
+    MockHtsToken internal immutable USD;
+    bool internal accepting;
+
+    constructor(Earmark earmark, MockHtsToken usd) {
+        EARMARK = earmark;
+        USD = usd;
+    }
+
+    function fund(address backing, uint64 amount, uint64 expiry, uint256 value) external returns (uint256) {
+        USD.approve(address(EARMARK), amount);
+        return EARMARK.createProgram{ value: value }(
+            Earmark.CreateParams({
+                backing: backing, amount: amount, expiry: expiry, name: "Grant", symbol: "eG", charterHash: bytes32(0)
+            })
+        );
+    }
+
+    function acceptHbar() external {
+        accepting = true;
+    }
+
+    function withdrawHbar() external {
+        EARMARK.withdrawHbar();
+    }
+
+    receive() external payable {
+        require(accepting, "no HBAR please");
     }
 }

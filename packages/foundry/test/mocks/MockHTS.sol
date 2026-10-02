@@ -45,6 +45,11 @@ contract MockHtsToken {
     function associate() external returns (int64) {
         return HTS.facadeAssociate(address(this), msg.sender);
     }
+
+    /// @dev HIP-719 dissociation; the network only allows it with a zero balance.
+    function dissociate() external returns (int64) {
+        return HTS.facadeDissociate(address(this), msg.sender);
+    }
 }
 
 contract Refund {
@@ -73,6 +78,7 @@ contract MockHTS {
     int64 internal constant TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT = 194;
     int64 internal constant SPENDER_DOES_NOT_HAVE_ALLOWANCE = 292;
     int64 internal constant INVALID_SIGNATURE = 7;
+    int64 internal constant TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES = 216;
 
     uint256 public constant CREATE_FEE = 10e8; // 10 HBAR in tinybars
 
@@ -93,6 +99,7 @@ contract MockHTS {
     mapping(address => mapping(address => bool)) public associated;
     mapping(address => mapping(address => bool)) public kyc;
     mapping(address => mapping(address => mapping(address => uint256))) internal _allowances;
+    mapping(address => bool) public hasCustomFees;
 
     function createFungibleToken(IHederaTokenService.HederaToken memory token, int64 supply, int32 decimals)
         external
@@ -162,6 +169,20 @@ contract MockHTS {
         return SUCCESS;
     }
 
+    function getTokenCustomFees(address token)
+        external
+        view
+        returns (
+            int64,
+            IHederaTokenService.FixedFee[] memory fixedFees,
+            IHederaTokenService.FractionalFee[] memory fractionalFees,
+            IHederaTokenService.RoyaltyFee[] memory royaltyFees
+        )
+    {
+        if (hasCustomFees[token]) fixedFees = new IHederaTokenService.FixedFee[](1);
+        return (SUCCESS, fixedFees, fractionalFees, royaltyFees);
+    }
+
     function pauseToken(address token) external returns (int64) {
         Token storage t = tokens[token];
         if (t.pauseKey != msg.sender) return INVALID_PAUSE_KEY;
@@ -184,6 +205,21 @@ contract MockHTS {
     function facadeAssociate(address token, address account) external returns (int64) {
         require(msg.sender == token, "MockHTS: facade only");
         return _associate(token, account);
+    }
+
+    function facadeDissociate(address token, address account) external returns (int64) {
+        require(msg.sender == token, "MockHTS: facade only");
+        if (!associated[token][account]) return TOKEN_NOT_ASSOCIATED_TO_ACCOUNT;
+        if (_balances[token][account] != 0) return TRANSACTION_REQUIRES_ZERO_TOKEN_BALANCES;
+        associated[token][account] = false;
+        kyc[token][account] = false;
+        return SUCCESS;
+    }
+
+    // --- test helpers ---
+
+    function setCustomFees(address token, bool enabled) external {
+        hasCustomFees[token] = enabled;
     }
 
     // --- views ---

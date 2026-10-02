@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 /**
  * @notice Emulates the HIP-1215 Hedera Schedule Service. Schedules are recorded rather than executed; tests fire
- *         them the way the network would: at the scheduled second, with the scheduling contract as msg.sender.
+ *         them the way the network would: at the scheduled second, sent by the payer of the creating transaction.
  * @dev Etched at 0x16b in tests.
  */
 contract MockHSS {
@@ -23,15 +23,15 @@ contract MockHSS {
     uint256 public count;
     mapping(address => Schedule) internal _schedules;
     mapping(uint256 second => bool) public full;
-    address public last;
+    int64 public forcedResponse;
 
     function scheduleCall(address to, uint256 expirySecond, uint256 gasLimit, uint64, bytes memory callData)
         external
         returns (int64, address schedule)
     {
+        if (forcedResponse != 0) return (forcedResponse, address(0));
         schedule = address(uint160(0x5c4ed00000 + ++count));
         _schedules[schedule] = Schedule(msg.sender, to, expirySecond, gasLimit, callData, false, false);
-        last = schedule;
         return (SUCCESS, schedule);
     }
 
@@ -48,6 +48,11 @@ contract MockHSS {
 
     // --- test helpers ---
 
+    /// @dev Makes every following scheduleCall fail with `code`; 0 restores normal behaviour.
+    function forceResponse(int64 code) external {
+        forcedResponse = code;
+    }
+
     function setFull(uint256 second, bool isFull) external {
         full[second] = isFull;
     }
@@ -56,7 +61,7 @@ contract MockHSS {
         return _schedules[schedule];
     }
 
-    /// @dev Tests call this right before replaying the schedule's call as its creator (see EarmarkTest._fire).
+    /// @dev Tests call this right before replaying the schedule's call (see EarmarkTest._fire).
     function markExecuted(address schedule) external {
         Schedule storage s = _schedules[schedule];
         require(s.creator != address(0) && !s.executed && !s.deleted, "MockHSS: not pending");
