@@ -93,11 +93,17 @@ export function Receipts({ ctx }: { ctx: ProgramContext }) {
       isAddressEqual((e.envelope.body as Receipt).earmark, earmark),
   );
 
-  const redemptions = new Map(
-    (events ?? [])
-      .filter(e => e.eventName === "Redeemed")
-      .map(e => [String(e.args.receiptHash).toLowerCase(), e.transactionHash]),
-  );
+  const redemptions = (events ?? []).filter(e => e.eventName === "Redeemed");
+  // receiptHash is caller-supplied, so a redemption only counts if the same merchant redeemed the receipt's total.
+  const redemptionFor = (receipt: Receipt) => {
+    const hash = documentHash(receipt).toLowerCase();
+    return redemptions.find(
+      e =>
+        String(e.args.receiptHash).toLowerCase() === hash &&
+        isAddressEqual(e.args.merchant as Address, receipt.merchant) &&
+        (e.args.amount as bigint) === BigInt(receipt.total),
+    )?.transactionHash;
+  };
 
   const { data: signatures } = useQuery({
     queryKey: ["earmark", "receipt-sigs", receipts.map(r => r.sequenceNumber).join(",")],
@@ -129,7 +135,7 @@ export function Receipts({ ctx }: { ctx: ProgramContext }) {
         <ul className="flex flex-col gap-3 m-0 p-0 list-none">
           {receipts.map((r, i) => {
             const body = r.envelope.body as Receipt;
-            const redemptionTx = redemptions.get(documentHash(body).toLowerCase());
+            const redemptionTx = redemptionFor(body);
             return (
               <li key={r.sequenceNumber} className="bg-base-200 rounded-xl p-4 flex flex-col gap-2">
                 <div className="flex justify-between gap-2 flex-wrap text-sm">
@@ -180,6 +186,8 @@ const EVENT_LABELS: Record<string, (args: Record<string, unknown>, ctx: ProgramC
     `Escrowed ${formatAmount(a.amount as bigint, c.decimals)} ${c.backingSymbol} and created the voucher`,
   SettlementScheduled: a => `Scheduled settlement for ${new Date(Number(a.executeAt) * 1000).toLocaleString()}`,
   SettlementScheduleFailed: () => "Could not schedule the next settlement batch — anyone can call settle()",
+  SettlementCapacityExhausted: () => "No schedule capacity for the next batch — anyone can call settle()",
+  MerchantSettlementSkipped: a => `Could not settle ${short(a.merchant)}; its vouchers were voided`,
   ExpiryExtended: a => `Extended expiry to ${new Date(Number(a.newExpiry) * 1000).toLocaleString()}`,
   Allocated: (a, c) => `Allocated ${formatAmount(a.amount as bigint, c.decimals)} to ${short(a.beneficiary)}`,
   Deallocated: (a, c) =>
