@@ -21,6 +21,14 @@ Three properties are the point of the template. Keep them true in every change:
    Rejected payouts go to `owed`, rejected HBAR refunds to `hbarOwed`, a failed wipe skips the merchant, KYC
    revocation is best-effort, HBAR is sent without copying return data, and anyone may call `settle` after expiry.
 
+## Extension seams
+
+New features should plug into one of the four policies (README, "The four policies") rather than spreading through
+the contract: **eligibility** (`allocate`/`claim`), **spending** (`approveMerchant`/`removeMerchant`, HTS KYC),
+**evidence** (`utils/earmark/messages.ts`, `api/hcs`), **settlement** (`settle`/`_close`). Merchant categories are
+labels; if you add category budgets, enforcement must live in a contract entry point, because a plain HTS transfer
+cannot say which budget it spends from.
+
 ## Commands
 
 ```bash
