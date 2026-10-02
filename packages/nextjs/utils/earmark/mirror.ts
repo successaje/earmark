@@ -85,6 +85,16 @@ export async function fetchTokenInfo(chainId: number, token: Address): Promise<T
   };
 }
 
+/** US dollars per HBAR from the network's own exchange rate file (the rate HAPI fees are charged at). */
+export async function fetchHbarUsd(chainId: number): Promise<number | null> {
+  const data = await mirrorGet<{ current_rate: { cent_equivalent: number; hbar_equivalent: number } }>(
+    chainId,
+    "/api/v1/network/exchangerate",
+  );
+  if (!data) return null;
+  return data.current_rate.cent_equivalent / data.current_rate.hbar_equivalent / 100;
+}
+
 export type ScheduleInfo = {
   scheduleId: string;
   executesAt: number;
