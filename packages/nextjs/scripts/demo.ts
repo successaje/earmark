@@ -1,4 +1,5 @@
 import {
+  banner,
   chain,
   deployment,
   fail,
@@ -46,7 +47,9 @@ async function main() {
   if (dusd === zeroAddress) fail("DemoDollar is not initialised. Run `yarn earmark:setup` first.");
   const sdk = operatorSdkClient(config);
 
-  heading("1 · Create a beneficiary and a merchant account");
+  banner("EARMARK DEMO", "Money that knows what it is for — on Hedera testnet");
+
+  heading("0 · CAST", "A funder (your operator account), a recipient and a merchant, created fresh for this run.");
   const beneficiary = privateKeyToAccount(generatePrivateKey());
   const merchant = privateKeyToAccount(generatePrivateKey());
   await (
@@ -59,7 +62,7 @@ async function main() {
   console.log(`  ✓ beneficiary ${hashscanUrl(chain.id, "account", beneficiary.address)}`);
   console.log(`  ✓ merchant    ${hashscanUrl(chain.id, "account", merchant.address)}`);
 
-  heading("2 · Funder anchors a charter on HCS and escrows 100 dUSD");
+  heading("1 · FUND", "The funder publishes what the money is for, then locks 100 dUSD into a food program.");
   const funderBalance = await publicClient.readContract({
     address: dusd,
     abi: htsTokenAbi,
@@ -126,7 +129,7 @@ async function main() {
   console.log(`  ✓ Settlement schedule          ${hashscanUrl(chain.id, "schedule", entityIdFromAddress(schedule))}`);
   console.log(`      the network will call settle(${id}) at ${new Date(Number(executeAt) * 1000).toISOString()}`);
 
-  heading("3 · Enrol the beneficiary and approve the merchant");
+  heading("2 · ENROL", "The recipient gets 50 of the program credit; one grocer is approved to accept it.");
   await send({
     label: "Allocate 50 to the beneficiary",
     account: funder,
@@ -167,7 +170,10 @@ async function main() {
     gas: GAS.approveMerchant,
   });
 
-  heading("4 · The network, not the app, enforces the purpose");
+  heading(
+    "3 · BREAK THE RULES",
+    "The recipient tries to send credit to a wallet outside the program. Expected: Hedera refuses.",
+  );
   await send({
     label: "An outsider associates with the voucher (no KYC)",
     account: funder,
@@ -176,7 +182,7 @@ async function main() {
     gas: GAS.associate,
   });
   await send({
-    label: "Beneficiary tries to send 5 vouchers to the outsider",
+    label: "Recipient sends 5 eFOOD to an unapproved wallet — the app did not stop this, the network did",
     account: beneficiary,
     ...voucherToken,
     functionName: "transfer",
@@ -185,7 +191,7 @@ async function main() {
     expectRevert: true,
   });
   await send({
-    label: "Beneficiary pays the merchant 30 vouchers",
+    label: "Recipient pays the grocer 30 eFOOD",
     account: beneficiary,
     ...voucherToken,
     functionName: "transfer",
@@ -193,7 +199,7 @@ async function main() {
     gas: GAS.transfer,
   });
 
-  heading("5 · Merchant anchors an itemised receipt and redeems 20");
+  heading("4 · SPEND & PROVE", "The recipient buys groceries; the grocer signs an itemised receipt and gets paid.");
   const items: Receipt["items"] = [
     { description: "Rice, 5 kg", quantity: 2, unitPrice: units(6).toString() },
     { description: "Black beans, 2 kg", quantity: 1, unitPrice: units(8).toString() },
@@ -226,7 +232,10 @@ async function main() {
     gas: GAS.redeem,
   });
 
-  heading("6 · Hands off. Waiting for the network to run the scheduled settlement…");
+  heading(
+    "5 · WALK AWAY",
+    "No keeper. No cron job. No admin call. Waiting for Hedera to run the settlement the contract scheduled…",
+  );
   const deadline = Date.now() + (PROGRAM_SECONDS + 180) * 1000;
   let program = await publicClient.readContract({ ...earmark, functionName: "getProgram", args: [id] });
   while (program.status !== 3) {
@@ -248,6 +257,7 @@ async function main() {
     `${hederaNetwork(chain.id).mirrorNode}/api/v1/tokens/${entityIdFromAddress(voucher)}`,
   ).then(r => r.json());
 
+  heading("6 · SETTLED", "Executed automatically by Hedera.");
   console.log(
     `  ✓ Schedule ${executed?.scheduleId} executed at ${executed?.executedAt ? new Date(executed.executedAt * 1000).toISOString() : "?"}`,
   );

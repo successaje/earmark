@@ -110,6 +110,12 @@ export function fail(message: string): never {
   process.exit(1);
 }
 
-export function heading(text: string) {
+export function heading(text: string, story?: string) {
   console.log(`\n${text}`);
+  if (story) console.log(`${story}\n`);
+}
+
+export function banner(title: string, subtitle: string) {
+  const rule = "━".repeat(48);
+  console.log(`${rule}\n${title}\n${subtitle}\n${rule}`);
 }
