@@ -9,7 +9,9 @@
     "format": "prettier --write . '!(node_modules|.next|contracts)/**/*'",
     "lint": "next lint",
     "serve": "next start",
-    "start": "next dev"
+    "start": "next dev",
+    "earmark:setup": "tsx scripts/setup.ts",
+    "earmark:demo": "tsx scripts/demo.ts"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.5",

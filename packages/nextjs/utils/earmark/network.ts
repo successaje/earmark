@@ -14,7 +14,7 @@ const NETWORKS: Record<number, HederaNetwork> = {
     name: "testnet",
     mirrorNode: process.env.NEXT_PUBLIC_HEDERA_TESTNET_MIRROR_URL || "https://testnet.mirrornode.hedera.com",
     hashscan: "https://hashscan.io/testnet",
-    defaultTopicId: "0.0.10829141",
+    defaultTopicId: "0.0.10828988",
   },
   [hedera.id]: {
     name: "mainnet",
