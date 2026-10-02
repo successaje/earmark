@@ -10,7 +10,7 @@ The root [README](../../README.md) explains the design; [AGENTS.md](../../AGENTS
 
 ## Setup
 
-Libraries are git submodules (forge-std, OpenZeppelin, hedera-forking, solidity-bytes-utils). The scaffold CLI
+Libraries are git submodules (forge-std and OpenZeppelin), pinned in `foundry.lock`. The scaffold CLI
 installs them; in a plain clone run:
 
 ```bash
