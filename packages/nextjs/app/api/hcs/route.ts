@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { type Hex, isAddressEqual, verifyMessage } from "viem";
 import { createOperatorClient, readHcsConfig, submitMessage } from "~~/services/earmark/hcs";
+import { admit, clientKey, remember } from "~~/services/earmark/submissionGuard";
 import { earmarkDeployment, hederaPublicClient } from "~~/utils/earmark/contracts";
 import {
   type Envelope,
@@ -18,7 +19,8 @@ import { topicIdFor } from "~~/utils/earmark/network";
  *
  * GET  → which topic is in use and whether this server can anchor (an operator is configured).
  * POST → { type, body, signature }. The route checks the signature against the document's author, and for receipts
- *        that the author is an approved merchant of the program, before paying to submit the message.
+ *        that the author is an approved merchant of the program. It then refuses documents it already anchored and
+ *        rate-limits each client before paying to submit the message.
  */
 
 export async function GET(req: Request) {
@@ -51,10 +53,15 @@ export async function POST(req: Request) {
   const rejection = await validate(envelope);
   if (rejection) return NextResponse.json({ error: rejection }, { status: 422 });
 
+  const hash = documentHash(envelope.body);
+  const admission = admit(clientKey(req), hash);
+  if (!admission.ok) return NextResponse.json({ error: admission.error }, { status: admission.status });
+
   const client = createOperatorClient(config);
   try {
     const anchored = await submitMessage(client, topicId, encodeEnvelope(envelope));
-    return NextResponse.json({ topicId, hash: documentHash(envelope.body), ...anchored });
+    remember(hash);
+    return NextResponse.json({ topicId, hash, ...anchored });
   } catch (e) {
     console.error("[api/hcs]", e);
     return NextResponse.json({ error: "HCS submission failed" }, { status: 502 });
