@@ -20,7 +20,7 @@ export const menuLinks: HeaderMenuLink[] = [
     href: "/",
   },
   {
-    label: "Fund a program",
+    label: "Create a program",
     href: "/programs/new",
     icon: <PlusCircleIcon className="h-4 w-4" />,
   },

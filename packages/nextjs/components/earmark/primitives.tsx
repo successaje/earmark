@@ -58,9 +58,11 @@ export function formatDuration(seconds: number) {
   const h = Math.floor((seconds % 86_400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
+  const pair = (a: number, aUnit: string, b: number, bUnit: string) =>
+    b > 0 ? `${a}${aUnit} ${b}${bUnit}` : `${a}${aUnit}`;
+  if (d > 0) return pair(d, "d", h, "h");
+  if (h > 0) return pair(h, "h", m, "m");
+  if (m > 0) return pair(m, "m", s, "s");
   return `${s}s`;
 }
 
