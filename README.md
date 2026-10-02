@@ -1,26 +1,50 @@
-# Earmark — purpose-bound money on Hedera
+# Earmark
 
-**Money that knows what it is for.** A funder escrows a stablecoin and gets program-specific vouchers that:
-
-- **can only reach approved people** — every voucher transfer is checked by the Hedera Token Service, not by this app;
-- **settle themselves** — at expiry the contract's own scheduled call pays merchants, voids leftovers and refunds the
-  funder, with no keeper, cron job or admin;
-- **leave an itemised trail** — charters and merchant receipts are signed by wallets and anchored on the Hedera
-  Consensus Service, and their hashes are recorded with each redemption.
-
-Use it for humanitarian cash assistance, grants, scholarships, per-diems, subsidies, gift cards or loyalty credit —
-anywhere money is given for a purpose and should come back if it is not used for it. It is the
-[Purpose Bound Money](https://www.mas.gov.sg/schemes-and-initiatives/project-orchid) pattern, built from Hedera
-native services instead of application logic.
+**Money that knows what it is for.** A Scaffold-HBAR template for *policy-bound money*: budgets that carry their own
+rules about who can receive them, where they can be spent, what proves they were spent well, and what happens when
+time runs out.
 
 ```bash
 npm create scaffold-hbar@latest -- --template successaje/earmark
+cd <your-project> && yarn start
 ```
+
+```text
+      100 USDC ──► escrowed by Earmark ──► 100 eFOOD minted (HTS, no supply key)
+                                              │
+                                     Alice receives 50
+                                       │            │
+                                       ▼            ▼
+                              Grocer ✓ (approved)   Any other wallet ✕
+                                                    rejected by Hedera:
+                                                    ACCOUNT_KYC_NOT_GRANTED_FOR_TOKEN
+      expiry ──► Hedera runs the settlement the contract scheduled itself:
+                 merchants paid · leftovers voided · unspent USDC back to the funder
+```
+
+What you get:
+
+- **Restricted destinations, enforced by the network.** The program credit is an HTS token whose KYC key belongs to
+  the contract. A wallet, a bot or a modified frontend cannot send it anywhere unapproved —
+  [here is Hedera refusing](https://hashscan.io/testnet/transaction/1790969589.044793104).
+- **Autonomous settlement.** The contract schedules its own close with the Hedera Schedule Service (HIP-1215). No
+  keeper, cron job or admin — [here is the network running it](https://hashscan.io/testnet/transaction/1790969823.014089141).
+- **Proof of spend.** Funders' charters and merchants' itemised receipts are wallet-signed, anchored on the Hedera
+  Consensus Service, and hash-linked to each redemption.
+- **A full working app and a one-command demo:** `yarn earmark:demo` plays every role on testnet and prints a
+  HashScan link for each step.
+
+Use it for grants, humanitarian cash assistance, scholarships, employee allowances, subsidies, event or gift credit —
+anywhere money is given for a purpose and should come back if it is not used for it. It implements the
+[Purpose Bound Money](https://www.mas.gov.sg/schemes-and-initiatives/project-orchid) pattern from Hedera native
+services instead of application logic.
 
 ---
 
 ## Contents
 
+- [Why not an ERC-20 with an allowlist?](#why-not-an-erc-20-with-an-allowlist)
+- [The four policies](#the-four-policies)
 - [What happens, end to end](#what-happens-end-to-end)
 - [Why each Hedera service is load-bearing](#why-each-hedera-service-is-load-bearing)
 - [Quickstart (5 minutes)](#quickstart-5-minutes)
@@ -29,12 +53,55 @@ npm create scaffold-hbar@latest -- --template successaje/earmark
 - [Environment variables](#environment-variables)
 - [Architecture](#architecture)
 - [Hedera behaviours this template handles](#hedera-behaviours-this-template-handles)
+- [What building from Earmark teaches you](#what-building-from-earmark-teaches-you)
 - [Testing](#testing)
-- [Trust model and limits](#trust-model-and-limits)
+- [Trust model, privacy and limits](#trust-model-privacy-and-limits)
 - [Verified on testnet](#verified-on-testnet)
 - [Extending it](#extending-it)
 
 ---
+
+## Why not an ERC-20 with an allowlist?
+
+Because then the rules live in code that the money can route around.
+
+```text
+Solidity allowlist                         Earmark
+──────────────────                         ───────
+wallet ─► token contract checks            wallet ─► HTS transfer
+          its own mapping                            │
+          (upgradeable, forkable,                    ▼
+           bypassed by any wrapper,          network checks KYC on sender
+           only as good as the code)         AND recipient for this token
+                                                     │
+                                                     ▼
+                                            unapproved recipient rejected
+                                            by every node, from any wallet
+```
+
+Earmark keeps three promises that a plain token cannot:
+
+| Promise | How |
+| --- | --- |
+| It only reaches approved accounts | HTS KYC, with the KYC key held by the Earmark contract |
+| It is always fully backed | No supply key on the credit; vouchers are wiped before backing leaves; checked by invariant tests and shown live on every program page |
+| It ends on time without anyone acting | A Hedera schedule created in the same transaction as the program |
+
+## The four policies
+
+Every Earmark program answers four questions. The template ships one reference answer to each, and each is a seam
+you can replace:
+
+| Policy | Question | Reference implementation | Where it lives | Natural extensions |
+| --- | --- | --- | --- | --- |
+| **Eligibility** | *Who* can receive it? | The funder allocates amounts to accounts; recipients claim | `allocate`, `claim` | Merkle allocations, verifiable credentials, NFT or DAO membership |
+| **Spending** | *Where* can it go? | Approved merchants hold HTS KYC on the credit; the network enforces it | `approveMerchant`, `removeMerchant` | Category budgets routed through the contract, merchant registries, credential-gated merchants |
+| **Evidence** | *What* proves good use? | Wallet-signed itemised receipts on HCS, hash bound to `redeem` | `utils/earmark/messages.ts`, `api/hcs` | Attachments on content-addressed storage (CID anchored on HCS), recipient co-signatures, encrypted line items |
+| **Settlement** | *Until when*, and then what? | HSS closes it at expiry: pay merchants, void leftovers, refund the funder | `settle`, `_close` | Roll over into the next period, redistribute, transfer to a successor program |
+
+Merchant **categories** are labels today: they describe a merchant to recipients and auditors, while enforcement is
+per merchant. Per-category budgets (e.g. Food $60 / Transport $25) need spending routed through the contract,
+because a plain token transfer cannot say which budget it draws from — see [Extending it](#extending-it).
 
 ## What happens, end to end
 
@@ -115,15 +182,22 @@ Open <http://localhost:3000>.
    "Get testnet HBAR" button opens the faucet.
 2. **Connect** on *Hedera Testnet* (chain id 296, RPC `https://testnet.hashio.io/api`). The connect button offers to
    add the network.
-3. **Fund a program.** On *Fund a program*, press *Get 1,000 dUSD* (the testnet stand-in for USDC), set a 10-minute
-   window and create. You sign the charter, approve the escrow and confirm `createProgram`.
+3. **Create a program.** On *Create a program*, pick a template (Food assistance uses a 10-minute window), press
+   *Get 1,000 dUSD* (the testnet stand-in for USDC), then *Review program* → *Create program*. You sign the charter,
+   approve the escrow and confirm `createProgram`; the page shows each step as it completes.
 4. **Play the other roles.** Open the program page from a second and third wallet (or browser profile): each one
-   presses *Associate* in the *Join* card. Back as the funder, allocate to the first and approve the second as a
-   merchant. The beneficiary claims and pays; the merchant builds a receipt and redeems.
-5. **Wait.** When the window closes, watch *Self-settlement* flip to *Executed by the network* and the program close.
+   presses *Activate wallet* in the *Join* card (HIP-719 association). Back as the funder, *Give allowances* to the
+   first and *Approve where it can be spent* for the second. The recipient presses *Activate my funds* and pays; the
+   merchant fills in a receipt and presses *Sign receipt & get paid*. Try *Try to break the rules* to watch Hedera
+   reject a transfer.
+5. **Wait.** When the window closes, watch *Autonomous settlement* flip to *Executed by the network*, the money flow
+   show the refund, and *Guarantees* report the credit paused.
+
+Open *Developer view* at the bottom of any program page for every Hedera entity behind it, with HashScan links.
 
 HCS anchoring needs a server-side operator account (see [environment variables](#environment-variables)). Without
-one, everything else works and the hashes still go on-chain; the UI says anchoring is off.
+one the app runs in *local-only evidence mode*: documents are still signed and their hashes go on-chain, but they are
+not published, and the UI says so.
 
 ## Watch a full lifecycle from the CLI
 
@@ -137,15 +211,23 @@ yarn earmark:demo
 ```
 
 ```text
-4 · The network, not the app, enforces the purpose
+3 · BREAK THE RULES
+The recipient tries to send credit to a wallet outside the program. Expected: Hedera refuses.
+
   ✓ An outsider associates with the voucher (no KYC)
-  ✗ rejected Beneficiary tries to send 5 vouchers to the outsider
+  ✗ rejected Recipient sends 5 eFOOD to an unapproved wallet — the app did not stop this, the network did
       reason: ACCOUNT_KYC_NOT_GRANTED_FOR_TOKEN: The recipient is not part of this program, so the network refuses the transfer.
-  ✓ Beneficiary pays the merchant 30 vouchers
-5 · Merchant anchors an itemised receipt and redeems 20
-  ✓ Receipt anchored as message #2 (20 dUSD)
+  ✓ Recipient pays the grocer 30 eFOOD
+
+4 · SPEND & PROVE
+  ✓ Receipt anchored as message #4 (20 dUSD)
   ✓ Redeem 20 vouchers for dUSD, citing the receipt hash
-6 · Hands off. Waiting for the network to run the scheduled settlement…
+
+5 · WALK AWAY
+No keeper. No cron job. No admin call. Waiting for Hedera to run the settlement the contract scheduled…
+
+6 · SETTLED
+Executed automatically by Hedera.
   ✓ Schedule 0.0.10830515 executed at 2026-10-02T19:37:03.014Z
   ✓ Merchant holds 30 dUSD (20 redeemed by hand + 10 settled automatically)
   ✓ Funder refunded 70 dUSD (unallocated + unspent)
@@ -293,6 +375,25 @@ These are worth knowing before you build anything on HTS and HSS:
   and HBAR is sent without copying return data. The treasury (the contract itself) can never be approved as a
   merchant, because HTS refuses to wipe a treasury.
 
+## What building from Earmark teaches you
+
+Earmark is small enough to read in an afternoon and touches most of what is different about building on Hedera:
+
+- **HTS from a contract:** creating a token from Solidity, assigning KYC, wipe and pause keys to a contract, finite
+  supply with no supply key, the treasury rules (it cannot be wiped), creation fees paid in `msg.value` and refunded.
+- **Accounts and tokens:** HIP-719 association, KYC on both sides of a transfer, the HIP-218 ERC-20 facade,
+  `transferFrom` allowances, auto-association and why it does not help with KYC tokens.
+- **HIP-1215 scheduled calls:** `scheduleCall`, `hasScheduleCapacity`, `deleteSchedule`, self-continuation for batched
+  work, who pays, what `msg.sender` is, the 62-day horizon, and why `block.timestamp` needs a margin.
+- **HCS as an evidence layer:** canonical documents, wallet signatures over their hash, a topic with no submit key,
+  hash-linking messages to contract events, the 1,024-byte chunk limit.
+- **Mirror node indexing:** token relationships, token keys, schedules, topic messages and contract logs — and its
+  limits, such as needing a timestamp range to filter logs by topic.
+- **Long-zero addresses, response codes and gas:** converting `0.0.x` ↔ EVM, reading `int64` response codes, and
+  setting explicit gas because HTS fees are charged as gas.
+- **Testing system contracts:** emulating `0x167`/`0x16b` with real response codes, replaying schedules, and
+  handler-based invariants — then proving it on testnet with `yarn earmark:demo`.
+
 ## Testing
 
 ```bash
@@ -310,7 +411,7 @@ refunded to the caller, custom-fee schedules, HIP-719 dissociation, and schedule
 capacity. Tests fire schedules the way the network does — at their second, sent by a relay payer rather than the
 contract — so batching, rescheduling, capacity exhaustion and late settlement are all exercised. CI runs all of the above except the demo.
 
-## Trust model and limits
+## Trust model, privacy and limits
 
 - **The funder can:** allocate and deallocate unclaimed vouchers, approve and remove merchants (removal pays the
   merchant first), and extend the expiry.
@@ -321,6 +422,12 @@ contract — so batching, rescheduling, capacity exhaustion and late settlement 
 - **Beneficiaries can transfer vouchers to each other** (both hold KYC). For strict non-transferability, route
   spending through the contract instead of direct transfers.
 - Programs support up to 64 merchants, settled 8 per scheduled call.
+- **HCS is public and permanent. Never put personal data in charters or receipts.** Itemised receipts in the reference
+  implementation describe goods, not people. For medical, humanitarian or other sensitive programs, anchor only
+  hashes or encrypted records on HCS, use pseudonymous identifiers, and keep line items off-chain with selective
+  disclosure.
+- On-chain balances are public too: anyone can see which accounts hold a program's credit. Do not map accounts to
+  real identities in public metadata.
 - This is unaudited template code. Review it before using real money.
 
 ## Verified on testnet
@@ -348,12 +455,19 @@ A complete `yarn earmark:demo` run (program #1):
 
 ## Extending it
 
-- **Per-category budgets:** route spending through the contract and cap each beneficiary per merchant category.
-- **Merkle allocations:** replace `allocate` with a root and let beneficiaries claim with proofs, for millions of
-  recipients.
-- **Paid receipt topics:** use HIP-991 custom fees so merchants fund their own HCS messages.
-- **Recurring programs:** have `settle` schedule the next period's program instead of closing.
-- **Identity:** gate `claim` on a verifiable credential instead of a funder-written allocation.
+Each of these slots into one of [the four policies](#the-four-policies) without changing the others:
+
+| Extension | Policy | Sketch |
+| --- | --- | --- |
+| **Category budgets** (Food $60 / Transport $25) | Spending | Route spending through a `spend(id, merchant, amount, category)` entry point, or mint one credit token per category |
+| **Invitation links** | Eligibility | Encode program + allocation in a link; the join page runs activate → claim as one guided flow |
+| **Merkle or credential eligibility** | Eligibility | Replace `allocate` with a root or a verifiable-credential check in `claim`, for millions of recipients |
+| **Merchant registry** | Spending | Approve merchants once across programs, or approve "any merchant holding a FOOD credential" |
+| **Rich evidence** | Evidence | Store invoices or photos on content-addressed storage and anchor the CID and hash on HCS; recipient co-signatures |
+| **Paid receipt topics** | Evidence | HIP-991 custom fees so merchants fund their own HCS messages |
+| **Fund with any asset** | Funding | Swap HBAR or other tokens into the backing token through a DEX such as SaucerSwap before escrow |
+| **Recurring and successor programs** | Settlement | Have `settle` create the next period's program, rolling over or redistributing unspent funds |
+| **Separate roles** | All | Distinct funder, administrator and auditor accounts for institutional programs |
 
 ## License
 
