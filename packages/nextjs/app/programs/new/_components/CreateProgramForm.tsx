@@ -540,14 +540,18 @@ export function CreateProgramForm() {
         </Card>
         <Card title="Your funds">
           <div className="flex flex-col gap-3 text-sm">
-            <div className="flex justify-between">
-              <span className="opacity-70">Balance</span>
-              <Amount value={balance} decimals={decimals} symbol={backingSymbol} />
-            </div>
-            <div className="flex justify-between">
-              <span className="opacity-70">Already approved</span>
-              <Amount value={allowance} decimals={decimals} symbol={backingSymbol} />
-            </div>
+            {!viaHbar && (
+              <>
+                <div className="flex justify-between">
+                  <span className="opacity-70">Balance</span>
+                  <Amount value={balance} decimals={decimals} symbol={backingSymbol} />
+                </div>
+                <div className="flex justify-between">
+                  <span className="opacity-70">Already approved</span>
+                  <Amount value={allowance} decimals={decimals} symbol={backingSymbol} />
+                </div>
+              </>
+            )}
             {viaHbar && (
               <div className="flex justify-between">
                 <span className="opacity-70">HBAR balance</span>

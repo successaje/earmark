@@ -103,7 +103,8 @@ export function DemoActors({ ctx }: { ctx: ProgramContext }) {
     call: { address: string; abi: Abi | readonly unknown[]; functionName: string; args?: readonly unknown[] },
     gas: bigint,
   ) => {
-    const wallet = createWalletClient({ account, chain: targetNetwork, transport: http(publicClient!.transport.url) });
+    const transport = http(publicClient!.transport.url, { retryCount: 5, retryDelay: 1_500 });
+    const wallet = createWalletClient({ account, chain: targetNetwork, transport });
     const hash = await wallet.writeContract({
       ...call,
       address: call.address as Address,
@@ -236,7 +237,13 @@ export function DemoActors({ ctx }: { ctx: ProgramContext }) {
       // The fund step saves the freshly created actors itself; `actors` here is still the previous render's value.
       if (id !== "fund") persist(actors, next);
     } catch (e) {
-      note({ text: e instanceof Error ? e.message.split("\n")[0] : "Step failed", ok: false });
+      const message = e instanceof Error ? e.message.split("\n")[0] : "Step failed";
+      note({
+        text: /HTTP request failed/.test(message)
+          ? "The JSON-RPC relay did not answer (it rate-limits). Press Run again."
+          : message,
+        ok: false,
+      });
     } finally {
       setRunning(null);
     }

@@ -32,7 +32,10 @@ export function ProgramDashboard({ id }: { id: bigint }) {
   if (!ctx.program) {
     return (
       <div className="text-center py-16 flex flex-col items-center gap-3">
-        <p className="opacity-70 m-0">Program #{id.toString()} does not exist on this network.</p>
+        <p className="opacity-70 m-0">
+          Program #{id.toString()} was not found on this network. A program created a moment ago can take a few seconds
+          to appear; this page keeps checking.
+        </p>
         <Link href="/" className="btn btn-sm">
           Back to programs
         </Link>
