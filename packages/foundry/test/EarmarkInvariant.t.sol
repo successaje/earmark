@@ -6,6 +6,7 @@ import { Earmark } from "../contracts/Earmark.sol";
 import { IHederaTokenService } from "../contracts/hedera/IHederaTokenService.sol";
 import { MockHTS, MockHtsToken } from "./mocks/MockHTS.sol";
 import { MockHSS } from "./mocks/MockHSS.sol";
+import { ISaucerSwapV1Router } from "../contracts/saucerswap/ISaucerSwapV1Router.sol";
 
 /// @notice Drives one program through random claims, payments, redemptions and settlement.
 contract EarmarkHandler is Test {
@@ -121,7 +122,7 @@ contract EarmarkInvariantTest is Test {
         vm.etch(address(0x167), address(new MockHTS()).code);
         vm.etch(address(0x16b), address(new MockHSS()).code);
         hts = MockHTS(address(0x167));
-        earmark = new Earmark();
+        earmark = new Earmark(ISaucerSwapV1Router(address(0)), address(0));
 
         IHederaTokenService.HederaToken memory def;
         def.name = "USD Coin";

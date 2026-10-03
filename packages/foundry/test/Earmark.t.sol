@@ -5,6 +5,8 @@ import { Test, Vm } from "forge-std/Test.sol";
 import { Earmark } from "../contracts/Earmark.sol";
 import { MockHTS, MockHtsToken } from "./mocks/MockHTS.sol";
 import { MockHSS } from "./mocks/MockHSS.sol";
+import { MockSaucerRouter } from "./mocks/MockSaucerRouter.sol";
+import { ISaucerSwapV1Router } from "../contracts/saucerswap/ISaucerSwapV1Router.sol";
 import { IHederaTokenService } from "../contracts/hedera/IHederaTokenService.sol";
 
 contract EarmarkTest is Test {
@@ -20,6 +22,9 @@ contract EarmarkTest is Test {
     MockHSS internal hss;
     Earmark internal earmark;
     MockHtsToken internal usd;
+    MockSaucerRouter internal router;
+    address internal constant WHBAR = address(0x3ad2);
+    uint256 internal constant USD_PER_HBAR = 2e6; // 2 dUSD per HBAR in the mock pool
 
     address internal funder = makeAddr("funder");
     address internal alice = makeAddr("alice");
@@ -35,9 +40,13 @@ contract EarmarkTest is Test {
         vm.etch(HSS_ADDR, address(new MockHSS()).code);
         hts = MockHTS(HTS_ADDR);
         hss = MockHSS(HSS_ADDR);
-        earmark = new Earmark();
+        router = new MockSaucerRouter();
+        earmark = new Earmark(ISaucerSwapV1Router(address(router)), WHBAR);
 
         usd = _createBackingToken();
+        router.setRate(USD_PER_HBAR);
+        _associate(address(usd), address(router));
+        usd.transfer(address(router), 100_000e6);
         vm.prank(address(this));
         usd.transfer(funder, 10_000e6);
         vm.deal(funder, 100e8);
@@ -678,6 +687,54 @@ contract EarmarkTest is Test {
     }
 
     // ------------------------------------------------------------------
+    // Funding with HBAR through SaucerSwap
+    // ------------------------------------------------------------------
+
+    function test_createProgramWithHbar_escrowsWhatTheSwapDelivered() public {
+        uint256 hbarIn = 50e8;
+        uint64 quoted = uint64(hbarIn * USD_PER_HBAR / 1e8);
+
+        vm.prank(funder);
+        uint256 id =
+            earmark.createProgramWithHbar{ value: hbarIn + CREATE_VALUE }(_swapParams(), hbarIn, quoted * 99 / 100);
+
+        Earmark.Program memory p = earmark.getProgram(id);
+        assertEq(p.backing, address(usd));
+        assertEq(p.funded, quoted);
+        assertEq(usd.balanceOf(address(earmark)), quoted);
+        assertEq(MockHtsToken(p.voucher).totalSupply(), quoted, "credit minted 1:1 against the swapped amount");
+        assertEq(p.hbarReserve, CREATE_VALUE - hts.CREATE_FEE(), "swap value is not counted as reserve");
+        assertEq(address(router).balance, hbarIn);
+    }
+
+    function test_createProgramWithHbar_catchesARouterThatDeliversLess() public {
+        uint256 hbarIn = 50e8;
+        uint64 quoted = uint64(hbarIn * USD_PER_HBAR / 1e8);
+        router.setShortfall(1);
+
+        vm.prank(funder);
+        vm.expectRevert(abi.encodeWithSelector(Earmark.InsufficientSwapOutput.selector, quoted - 1));
+        earmark.createProgramWithHbar{ value: hbarIn + CREATE_VALUE }(_swapParams(), hbarIn, quoted);
+    }
+
+    function test_createProgramWithHbar_requiresAReserveAndAFloor() public {
+        Earmark.CreateParams memory params = _swapParams();
+        vm.startPrank(funder);
+        vm.expectRevert(Earmark.InvalidParams.selector);
+        earmark.createProgramWithHbar{ value: 10e8 }(params, 10e8, 1); // nothing left for the reserve
+        vm.expectRevert(Earmark.InvalidParams.selector);
+        earmark.createProgramWithHbar{ value: 40e8 }(params, 10e8, 0); // no slippage floor
+        vm.stopPrank();
+    }
+
+    function test_createProgramWithHbar_unavailableWithoutARouter() public {
+        Earmark withoutDex = new Earmark(ISaucerSwapV1Router(address(0)), address(0));
+        vm.prank(funder);
+        vm.expectRevert(Earmark.SwapUnavailable.selector);
+        withoutDex.createProgramWithHbar{ value: 40e8 }(_swapParams(), 10e8, 1);
+    }
+
+    // ------------------------------------------------------------------
     // Expiry only moves forward
     // ------------------------------------------------------------------
 
@@ -749,6 +806,11 @@ contract EarmarkTest is Test {
         _associate(token, grocer);
         _associate(token, pharmacy);
         return MockHtsToken(token);
+    }
+
+    function _swapParams() internal view returns (Earmark.CreateParams memory params) {
+        params = _params(uint64(block.timestamp + 7 days));
+        params.backing = address(usd);
     }
 
     function _params(uint64 expiry) internal pure returns (Earmark.CreateParams memory) {
