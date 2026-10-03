@@ -172,8 +172,11 @@ needs an operator, or a ledger without receipts.
 
 The template ships pointed at a live testnet deployment, so you can use it before deploying anything.
 
-**Prerequisites:** Node.js ≥ 20.18.3, Yarn (via `corepack enable`), Git, [Foundry](https://getfoundry.sh) (for
+**Prerequisites:** Node.js ≥ 20.18.3, Yarn (via `corepack enable`), Git, [Foundry](https://getfoundry.sh) ≥ 1.4 (for
 contracts), and MetaMask or another EVM wallet.
+
+The template is Yarn-only on purpose: it ships a `yarn.lock`, and installing without it currently resolves Hedera SDK
+and viem releases that do not type-check together. Reproducible installs matter more than a second package manager.
 
 ```bash
 npm create scaffold-hbar@latest -- --template successaje/earmark
