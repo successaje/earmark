@@ -51,7 +51,7 @@ async function getBalanceForEachNetwork(address) {
         console.log("   Nonce:", await provider.getTransactionCount(address));
       } catch (e) {
         console.log(
-          `   ❌ Can't connect to network ${networkName}: ${e.message}`
+          `   ❌ Can't connect to network ${networkName}: ${e.message}`,
         );
       }
     }
@@ -65,7 +65,7 @@ async function checkAccountBalance() {
     // Step 1: List accounts and let user select one
     console.log("📋 Listing available accounts...");
     const selectedKeystore = await listKeystores(
-      "Select a keystore to display its balance (enter the number, e.g., 1): "
+      "Select a keystore to display its balance (enter the number, e.g., 1): ",
     );
 
     if (!selectedKeystore) {
