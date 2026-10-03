@@ -7,6 +7,8 @@ type HederaNetwork = {
   hashscan: string;
   /** Public topic this deployment anchors charters and receipts to (created by `yarn earmark:setup`). */
   defaultTopicId?: string;
+  /** Stablecoin with a SaucerSwap V1 pool against WHBAR, used when a program is funded with HBAR. */
+  swapBackingTokenId?: string;
 };
 
 const NETWORKS: Record<number, HederaNetwork> = {
@@ -15,11 +17,13 @@ const NETWORKS: Record<number, HederaNetwork> = {
     mirrorNode: process.env.NEXT_PUBLIC_HEDERA_TESTNET_MIRROR_URL || "https://testnet.mirrornode.hedera.com",
     hashscan: "https://hashscan.io/testnet",
     defaultTopicId: "0.0.10828988",
+    swapBackingTokenId: "0.0.5449", // SaucerSwap's testnet USDC
   },
   [hedera.id]: {
     name: "mainnet",
     mirrorNode: process.env.NEXT_PUBLIC_HEDERA_MAINNET_MIRROR_URL || "https://mainnet.mirrornode.hedera.com",
     hashscan: "https://hashscan.io/mainnet",
+    swapBackingTokenId: "0.0.456858", // Circle USDC
   },
 };
 

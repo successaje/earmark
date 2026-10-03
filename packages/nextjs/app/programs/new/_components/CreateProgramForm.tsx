@@ -4,14 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { type Address, getAddress, isAddress, parseEther, parseEventLogs, parseUnits, zeroAddress } from "viem";
-import { useAccount, usePublicClient, useReadContracts, useSignMessage } from "wagmi";
-import { Amount, Card, formatDuration } from "~~/components/earmark/primitives";
+import { useAccount, useBalance, usePublicClient, useReadContract, useReadContracts, useSignMessage } from "wagmi";
+import { Amount, Card, formatAmount, formatDuration } from "~~/components/earmark/primitives";
 import { useAnchoringStatus, useChainId, useHederaWrite } from "~~/hooks/earmark";
 import { useDeployedContractInfo, useScaffoldReadContract } from "~~/hooks/scaffold-hbar";
-import { GAS, htsTokenAbi } from "~~/utils/earmark/abis";
+import { GAS, htsTokenAbi, saucerSwapRouterAbi } from "~~/utils/earmark/abis";
 import { type Charter, documentHash } from "~~/utils/earmark/messages";
 import { fetchHbarUsd } from "~~/utils/earmark/mirror";
-import { addressFromEntityId } from "~~/utils/earmark/network";
+import { addressFromEntityId, hederaNetwork } from "~~/utils/earmark/network";
 import { notification } from "~~/utils/scaffold-hbar";
 
 const UNIT_SECONDS = { minutes: 60, hours: 3600, days: 86_400 } as const;
@@ -22,6 +22,7 @@ type Unit = keyof typeof UNIT_SECONDS;
  * not use is refunded at close, so the recommendation errs high.
  */
 const RESERVE_USD = 2.5;
+const SLIPPAGE_BPS = 100;
 const FALLBACK_RESERVE_HBAR = 30;
 
 type Preset = {
@@ -102,6 +103,8 @@ export function CreateProgramForm() {
   const [unit, setUnit] = useState<Unit>(PRESETS[0].unit);
   const [customBacking, setCustomBacking] = useState("");
   const [reserveOverride, setReserveOverride] = useState("");
+  const [fundWith, setFundWith] = useState<"token" | "hbar">("token");
+  const [hbarAmount, setHbarAmount] = useState("20");
   const [reviewing, setReviewing] = useState(false);
   const [progress, setProgress] = useState<Step | "done" | null>(null);
 
@@ -109,8 +112,38 @@ export function CreateProgramForm() {
   const reserve = reserveOverride || String(recommendedReserve);
   const symbol = symbolOverride || symbolFrom(title);
 
-  const backing = resolveBacking(customBacking) ?? (dusd && dusd !== zeroAddress ? dusd : undefined);
-  const usingDemoDollar = Boolean(backing && dusd && backing === dusd);
+  // Funding with HBAR: Earmark swaps through SaucerSwap into this network's swap stablecoin.
+  const swapTokenId = hederaNetwork(chainId).swapBackingTokenId;
+  const swapBacking = swapTokenId ? addressFromEntityId(swapTokenId) : undefined;
+  const { data: dex } = useReadContracts({
+    contracts: earmark
+      ? [
+          { ...earmark, functionName: "SWAP_ROUTER" },
+          { ...earmark, functionName: "WHBAR" },
+        ]
+      : [],
+    query: { enabled: Boolean(earmark), staleTime: Infinity },
+  });
+  const swapRouter = dex?.[0]?.result as Address | undefined;
+  const whbar = dex?.[1]?.result as Address | undefined;
+  const swapAvailable = Boolean(swapBacking && swapRouter && swapRouter !== zeroAddress && whbar);
+  const viaHbar = fundWith === "hbar" && swapAvailable;
+  const hbarIn = safeParseUnits(hbarAmount, 8); // tinybars
+  const { data: quote } = useReadContract({
+    address: swapRouter,
+    abi: saucerSwapRouterAbi,
+    functionName: "getAmountsOut",
+    args: [hbarIn ?? 0n, [whbar ?? zeroAddress, swapBacking ?? zeroAddress]],
+    query: { enabled: viaHbar && Boolean(hbarIn), refetchInterval: 15_000 },
+  });
+  const quotedOut = quote?.[1];
+  const minOut = quotedOut === undefined ? undefined : (quotedOut * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
+  const { data: hbarBalance } = useBalance({ address: funder, query: { enabled: viaHbar } });
+
+  const backing = viaHbar
+    ? swapBacking
+    : (resolveBacking(customBacking) ?? (dusd && dusd !== zeroAddress ? dusd : undefined));
+  const usingDemoDollar = !viaHbar && Boolean(backing && dusd && backing === dusd);
 
   const { data: backingState, refetch: refetchBacking } = useReadContracts({
     contracts: [
@@ -131,20 +164,29 @@ export function CreateProgramForm() {
   const balance = (backingState?.[2].result as bigint | undefined) ?? 0n;
   const allowance = (backingState?.[3].result as bigint | undefined) ?? 0n;
 
-  const amountUnits = safeParseUnits(amount, decimals);
+  const amountUnits = viaHbar ? (quotedOut ?? null) : safeParseUnits(amount, decimals);
   const seconds = Math.round(Number(duration) * UNIT_SECONDS[unit]);
   const categoryList = categories
     .split(",")
     .map(c => c.trim().toUpperCase())
     .filter(Boolean);
-  const needsApproval = amountUnits !== null && allowance < amountUnits;
+  const needsApproval = !viaHbar && amountUnits !== null && allowance < amountUnits;
+  const hbarNeeded = parseEther(String(Number(hbarAmount || "0") + Number(reserve || "0")));
   const busy = progress !== null && progress !== "done";
 
   const problems = [
     !funder && "Connect a wallet",
     !backing && "Choose a funding asset",
-    amountUnits === null || amountUnits === 0n ? "Enter an amount" : null,
-    amountUnits !== null && amountUnits > balance && `Not enough ${backingSymbol || "funds"} in your wallet`,
+    amountUnits === null || amountUnits === 0n
+      ? viaHbar
+        ? "Waiting for a SaucerSwap quote"
+        : "Enter an amount"
+      : null,
+    !viaHbar &&
+      amountUnits !== null &&
+      amountUnits > balance &&
+      `Not enough ${backingSymbol || "funds"} in your wallet`,
+    viaHbar && hbarBalance && hbarBalance.value < hbarNeeded && "Not enough HBAR for the swap plus the network reserve",
     (seconds < 60 || seconds > 60 * 86_400) && "The spending window must be between 1 minute and 60 days",
     categoryList.length === 0 && "Add at least one category",
     !title.trim() && "Give the program a name",
@@ -206,14 +248,23 @@ export function CreateProgramForm() {
 
       setProgress("create");
       const expiry = BigInt(Math.floor(Date.now() / 1000) + seconds);
-      const hash = await write({
-        address: earmark.address,
-        abi: earmark.abi,
-        functionName: "createProgram",
-        args: [{ backing, amount: amountUnits, expiry, name: title, symbol, charterHash }],
-        value: parseEther(reserve || "0"),
-        gas: GAS.createProgram,
-      });
+      const hash = viaHbar
+        ? await write({
+            address: earmark.address,
+            abi: earmark.abi,
+            functionName: "createProgramWithHbar",
+            args: [{ backing, amount: 0n, expiry, name: title, symbol, charterHash }, hbarIn, minOut],
+            value: hbarNeeded,
+            gas: GAS.createProgramWithHbar,
+          })
+        : await write({
+            address: earmark.address,
+            abi: earmark.abi,
+            functionName: "createProgram",
+            args: [{ backing, amount: amountUnits, expiry, name: title, symbol, charterHash }],
+            value: parseEther(reserve || "0"),
+            gas: GAS.createProgram,
+          });
       if (!hash) {
         setProgress(null);
         return;
@@ -230,7 +281,9 @@ export function CreateProgramForm() {
   };
 
   const policy = [
-    `Be backed 1:1 by ${amount || "0"} ${backingSymbol || "of the funding asset"}, held in escrow by the contract`,
+    viaHbar
+      ? `Be backed 1:1 by the ${backingSymbol || "stablecoin"} that ${hbarAmount || "0"} HBAR buys on SaucerSwap (at least ${formatAmount(minOut, decimals)}), held in escrow by the contract`
+      : `Be backed 1:1 by ${amount || "0"} ${backingSymbol || "of the funding asset"}, held in escrow by the contract`,
     "Only reach recipients you give it to and merchants you approve",
     `Be spendable for ${formatDuration(seconds)}, then stop`,
     "Ask merchants for signed, itemised receipts as proof of spend",
@@ -278,15 +331,56 @@ export function CreateProgramForm() {
             >
               <input className="input w-full" value={categories} onChange={e => setCategories(e.target.value)} />
             </Field>
+            {swapAvailable && (
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-medium">Fund with</span>
+                <div role="tablist" className="tabs tabs-box w-fit">
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`tab ${fundWith === "token" ? "tab-active" : ""}`}
+                    onClick={() => setFundWith("token")}
+                  >
+                    A stablecoin I hold
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`tab ${fundWith === "hbar" ? "tab-active" : ""}`}
+                    onClick={() => setFundWith("hbar")}
+                  >
+                    HBAR, swapped on SaucerSwap
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={`Budget${backingSymbol ? ` (${backingSymbol})` : ""}`}>
-                <input
-                  className="input w-full"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                />
-              </Field>
+              {viaHbar ? (
+                <Field
+                  label="HBAR to convert"
+                  hint={
+                    quotedOut === undefined
+                      ? "Getting a SaucerSwap quote…"
+                      : `≈ ${formatAmount(quotedOut, decimals)} ${backingSymbol} via SaucerSwap, at least ${formatAmount(minOut, decimals)} (${SLIPPAGE_BPS / 100}% slippage)`
+                  }
+                >
+                  <input
+                    className="input w-full"
+                    inputMode="decimal"
+                    value={hbarAmount}
+                    onChange={e => setHbarAmount(e.target.value)}
+                  />
+                </Field>
+              ) : (
+                <Field label={`Budget${backingSymbol ? ` (${backingSymbol})` : ""}`}>
+                  <input
+                    className="input w-full"
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={e => setAmount(e.target.value)}
+                  />
+                </Field>
+              )}
               <Field label="Can be spent for" hint="It closes itself when this ends">
                 <div className="join w-full">
                   <input
@@ -454,6 +548,12 @@ export function CreateProgramForm() {
               <span className="opacity-70">Already approved</span>
               <Amount value={allowance} decimals={decimals} symbol={backingSymbol} />
             </div>
+            {viaHbar && (
+              <div className="flex justify-between">
+                <span className="opacity-70">HBAR balance</span>
+                <Amount value={hbarBalance?.value} decimals={18} symbol="HBAR" />
+              </div>
+            )}
             {usingDemoDollar && (
               <button className="btn btn-sm btn-outline" onClick={drip} disabled={!funder}>
                 Get 1,000 dUSD (testnet faucet)
