@@ -7,8 +7,24 @@ import { GenericContractsDeclaration } from "~~/utils/scaffold-hbar/contract";
 const deployedContracts = {
   296: {
     Earmark: {
-      address: "0xbc1662fd723eea18a044b5e2403f99507558a1ae",
+      address: "0x7c08e88b7c5fae314e2a223c1e257753431cce4c",
       abi: [
+        {
+          type: "constructor",
+          inputs: [
+            {
+              name: "swapRouter",
+              type: "address",
+              internalType: "contract ISaucerSwapV1Router",
+            },
+            {
+              name: "whbar",
+              type: "address",
+              internalType: "address",
+            },
+          ],
+          stateMutability: "nonpayable",
+        },
         {
           type: "function",
           name: "MAX_DURATION",
@@ -83,6 +99,32 @@ const deployedContracts = {
               name: "",
               type: "uint256",
               internalType: "uint256",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
+          name: "SWAP_ROUTER",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "address",
+              internalType: "contract ISaucerSwapV1Router",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
+          name: "WHBAR",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "address",
+              internalType: "address",
             },
           ],
           stateMutability: "view",
@@ -210,6 +252,67 @@ const deployedContracts = {
                   internalType: "bytes32",
                 },
               ],
+            },
+          ],
+          outputs: [
+            {
+              name: "id",
+              type: "uint256",
+              internalType: "uint256",
+            },
+          ],
+          stateMutability: "payable",
+        },
+        {
+          type: "function",
+          name: "createProgramWithHbar",
+          inputs: [
+            {
+              name: "params",
+              type: "tuple",
+              internalType: "struct Earmark.CreateParams",
+              components: [
+                {
+                  name: "backing",
+                  type: "address",
+                  internalType: "address",
+                },
+                {
+                  name: "amount",
+                  type: "uint64",
+                  internalType: "uint64",
+                },
+                {
+                  name: "expiry",
+                  type: "uint64",
+                  internalType: "uint64",
+                },
+                {
+                  name: "name",
+                  type: "string",
+                  internalType: "string",
+                },
+                {
+                  name: "symbol",
+                  type: "string",
+                  internalType: "string",
+                },
+                {
+                  name: "charterHash",
+                  type: "bytes32",
+                  internalType: "bytes32",
+                },
+              ],
+            },
+            {
+              name: "hbarIn",
+              type: "uint256",
+              internalType: "uint256",
+            },
+            {
+              name: "minOut",
+              type: "uint64",
+              internalType: "uint64",
             },
           ],
           outputs: [
@@ -729,6 +832,31 @@ const deployedContracts = {
         },
         {
           type: "event",
+          name: "FundedBySwap",
+          inputs: [
+            {
+              name: "id",
+              type: "uint256",
+              indexed: true,
+              internalType: "uint256",
+            },
+            {
+              name: "hbarIn",
+              type: "uint256",
+              indexed: false,
+              internalType: "uint256",
+            },
+            {
+              name: "received",
+              type: "uint64",
+              indexed: false,
+              internalType: "uint64",
+            },
+          ],
+          anonymous: false,
+        },
+        {
+          type: "event",
           name: "HbarOwed",
           inputs: [
             {
@@ -1114,6 +1242,17 @@ const deployedContracts = {
         },
         {
           type: "error",
+          name: "InsufficientSwapOutput",
+          inputs: [
+            {
+              name: "received",
+              type: "uint256",
+              internalType: "uint256",
+            },
+          ],
+        },
+        {
+          type: "error",
           name: "InvalidParams",
           inputs: [],
         },
@@ -1175,6 +1314,11 @@ const deployedContracts = {
         },
         {
           type: "error",
+          name: "SwapUnavailable",
+          inputs: [],
+        },
+        {
+          type: "error",
           name: "TooManyMerchants",
           inputs: [],
         },
@@ -1185,10 +1329,10 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 41274034,
+      deployedOnBlock: 41302822,
     },
     DemoDollar: {
-      address: "0x72b095d356c16bdf83ed967e4163c7107e821262",
+      address: "0x529ce02175b3a6a3aa772ccbb9199834931800ea",
       abi: [
         {
           type: "function",
@@ -1346,7 +1490,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 41274037,
+      deployedOnBlock: 41302825,
     },
   },
 } as const;
