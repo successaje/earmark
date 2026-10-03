@@ -5,6 +5,7 @@ import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/I
 import { IHederaTokenService } from "./hedera/IHederaTokenService.sol";
 import { IHederaScheduleService } from "./hedera/IHederaScheduleService.sol";
 import { HederaResponseCodes } from "./hedera/HederaResponseCodes.sol";
+import { ISaucerSwapV1Router } from "./saucerswap/ISaucerSwapV1Router.sol";
 
 /**
  * @title Earmark — purpose-bound money on Hedera
@@ -19,6 +20,8 @@ import { HederaResponseCodes } from "./hedera/HederaResponseCodes.sol";
  *         not even this contract can mint vouchers beyond what is escrowed.
  *  - HSS (HIP-1215): settlement is scheduled at creation and re-scheduled in batches until done.
  *  - HCS: program charters and itemised merchant receipts are anchored by hash (see packages/nextjs).
+ * Ecosystem: `createProgramWithHbar` funds a program from HBAR by swapping through SaucerSwap, so a funder does not
+ *            need to hold the backing stablecoin first.
  */
 contract Earmark {
     IHederaTokenService internal constant HTS = IHederaTokenService(address(0x167));
@@ -79,6 +82,11 @@ contract Earmark {
         bytes32 charterHash;
     }
 
+    /// @notice SaucerSwap V1 router and WHBAR token for `createProgramWithHbar`; zero where no DEX is configured.
+    ISaucerSwapV1Router public immutable SWAP_ROUTER;
+    address public immutable WHBAR;
+    uint256 internal constant SWAP_DEADLINE = 5 minutes;
+
     uint256 public programCount;
     /// @dev Sum of open programs' HBAR reserves. Schedule execution fees are charged to the contract's balance as a
     ///      whole, so a program closing while another is mid-settlement may absorb that program's few cents of
@@ -123,6 +131,7 @@ contract Earmark {
     event PayoutDeferred(uint256 indexed id, address indexed account, uint64 amount, int64 responseCode);
     event OwedWithdrawn(uint256 indexed id, address indexed account, uint64 amount);
     event HbarOwed(address indexed account, uint256 amount);
+    event FundedBySwap(uint256 indexed id, uint256 hbarIn, uint64 received);
     event SettlementProgress(uint256 indexed id, uint256 processed, uint256 total);
     event ProgramClosed(uint256 indexed id, uint64 redeemed, uint64 refunded, uint256 hbarRefunded);
 
@@ -141,9 +150,16 @@ contract Earmark {
     error NothingOwed();
     error UnsupportedBacking();
     error HbarTransferFailed();
+    error SwapUnavailable();
+    error InsufficientSwapOutput(uint256 received);
     error HtsFailed(bytes4 op, int64 responseCode);
     error ScheduleFailed(int64 responseCode);
     error NoScheduleCapacity();
+
+    constructor(ISaucerSwapV1Router swapRouter, address whbar) {
+        SWAP_ROUTER = swapRouter;
+        WHBAR = whbar;
+    }
 
     modifier onlyFunder(uint256 id) {
         if (_programs[id].funder != msg.sender) revert NotFunder();
@@ -159,39 +175,35 @@ contract Earmark {
     ///      creation fee; whatever is left becomes the program's reserve for its scheduled settlement and is
     ///      refunded at close.
     function createProgram(CreateParams calldata params) external payable returns (uint256 id) {
-        if (
-            params.backing == address(0) || params.amount == 0 || params.amount > uint64(type(int64).max)
-                || params.expiry < block.timestamp + MIN_DURATION || params.expiry > block.timestamp + MAX_DURATION
-                || bytes(params.name).length == 0 || bytes(params.symbol).length == 0
-        ) revert InvalidParams();
-        _requireFeeFreeBacking(params.backing);
-
+        _validate(params);
         uint256 balanceBefore = address(this).balance - msg.value;
 
         _associateSelf(params.backing);
         _check(HTS.transferFrom(params.backing, msg.sender, address(this), params.amount), HTS.transferFrom.selector);
 
-        id = ++programCount;
-        address voucher = _createVoucher(params, IERC20Metadata(params.backing).decimals(), id);
+        id = _open(params, params.amount, msg.value, balanceBefore);
+    }
 
-        isVoucher[voucher] = true;
+    /// @notice Fund a program with HBAR: Earmark swaps `hbarIn` through SaucerSwap into the backing token and escrows
+    ///         exactly what arrives. The rest of `msg.value` is the network reserve, as in `createProgram`.
+    /// @param params `amount` is ignored; the escrow is whatever the swap delivers.
+    /// @param hbarIn Tinybars to swap. Must be less than `msg.value`.
+    /// @param minOut Smallest acceptable amount of backing (the funder's slippage limit).
+    function createProgramWithHbar(CreateParams calldata params, uint256 hbarIn, uint64 minOut)
+        external
+        payable
+        returns (uint256 id)
+    {
+        if (address(SWAP_ROUTER) == address(0)) revert SwapUnavailable();
+        if (hbarIn == 0 || hbarIn >= msg.value || minOut == 0) revert InvalidParams();
+        _validate(params);
+        uint256 balanceBefore = address(this).balance - msg.value;
 
-        Program storage p = _programs[id];
-        p.funder = msg.sender;
-        p.backing = params.backing;
-        p.voucher = voucher;
-        p.expiry = params.expiry;
-        p.status = Status.Active;
-        p.funded = params.amount;
-        p.charterHash = params.charterHash;
+        _associateSelf(params.backing);
+        uint64 received = _swapHbarForBacking(params.backing, hbarIn, minOut);
+        emit FundedBySwap(programCount + 1, hbarIn, received);
 
-        _scheduleSettlement(id, params.expiry + SETTLEMENT_DELAY, true);
-
-        uint256 reserve = address(this).balance - balanceBefore;
-        p.hbarReserve = reserve;
-        totalHbarReserve += reserve;
-
-        emit ProgramCreated(id, msg.sender, voucher, params.backing, params.amount, params.expiry, params.charterHash);
+        id = _open(params, received, msg.value - hbarIn, balanceBefore);
     }
 
     /// @notice Reserve vouchers for beneficiaries. They receive them by calling `claim`.
@@ -384,7 +396,10 @@ contract Earmark {
     // Internals
     // ---------------------------------------------------------------------
 
-    function _createVoucher(CreateParams calldata params, uint8 decimals, uint256 id) internal returns (address) {
+    function _createVoucher(CreateParams calldata params, uint64 amount, uint8 decimals, uint256 id, uint256 fee)
+        internal
+        returns (address)
+    {
         IHederaTokenService.TokenKey[] memory keys = new IHederaTokenService.TokenKey[](1);
         keys[0] = IHederaTokenService.TokenKey({
             keyType: KYC_KEY | WIPE_KEY | PAUSE_KEY,
@@ -403,7 +418,7 @@ contract Earmark {
             treasury: address(this),
             memo: string.concat("Earmark program #", _toString(id)),
             tokenSupplyType: true, // finite: the supply can never exceed what is escrowed
-            maxSupply: _i64(params.amount),
+            maxSupply: _i64(amount),
             freezeDefault: false,
             tokenKeys: keys,
             expiry: IHederaTokenService.Expiry({
@@ -412,7 +427,7 @@ contract Earmark {
         });
 
         (int64 rc, address voucher) =
-            HTS.createFungibleToken{ value: msg.value }(token, _i64(params.amount), int32(uint32(decimals)));
+            HTS.createFungibleToken{ value: fee }(token, _i64(amount), int32(uint32(decimals)));
         _check(rc, HTS.createFungibleToken.selector);
         return voucher;
     }
@@ -505,6 +520,55 @@ contract Earmark {
             revert HtsFailed(HTS.associateToken.selector, rc);
         }
         isAssociated[token] = true;
+    }
+
+    function _validate(CreateParams calldata params) internal {
+        if (
+            params.backing == address(0) || params.amount > uint64(type(int64).max)
+                || params.expiry < block.timestamp + MIN_DURATION || params.expiry > block.timestamp + MAX_DURATION
+                || bytes(params.name).length == 0 || bytes(params.symbol).length == 0
+        ) revert InvalidParams();
+        _requireFeeFreeBacking(params.backing);
+    }
+
+    /// @dev Shared tail of both creation paths, once `amount` of backing is held: mint, record, schedule.
+    function _open(CreateParams calldata params, uint64 amount, uint256 creationValue, uint256 balanceBefore)
+        internal
+        returns (uint256 id)
+    {
+        if (amount == 0) revert InvalidParams();
+        id = ++programCount;
+        address voucher = _createVoucher(params, amount, IERC20Metadata(params.backing).decimals(), id, creationValue);
+        isVoucher[voucher] = true;
+
+        Program storage p = _programs[id];
+        p.funder = msg.sender;
+        p.backing = params.backing;
+        p.voucher = voucher;
+        p.expiry = params.expiry;
+        p.status = Status.Active;
+        p.funded = amount;
+        p.charterHash = params.charterHash;
+
+        _scheduleSettlement(id, params.expiry + SETTLEMENT_DELAY, true);
+
+        uint256 reserve = address(this).balance - balanceBefore;
+        p.hbarReserve = reserve;
+        totalHbarReserve += reserve;
+
+        emit ProgramCreated(id, msg.sender, voucher, params.backing, amount, params.expiry, params.charterHash);
+    }
+
+    /// @dev Measures what actually arrived rather than trusting the router's return value.
+    function _swapHbarForBacking(address backing, uint256 hbarIn, uint64 minOut) internal returns (uint64) {
+        address[] memory path = new address[](2);
+        path[0] = WHBAR;
+        path[1] = backing;
+        uint256 before = IERC20Metadata(backing).balanceOf(address(this));
+        SWAP_ROUTER.swapExactETHForTokens{ value: hbarIn }(minOut, path, address(this), block.timestamp + SWAP_DEADLINE);
+        uint256 received = IERC20Metadata(backing).balanceOf(address(this)) - before;
+        if (received < minOut || received > uint64(type(int64).max)) revert InsufficientSwapOutput(received);
+        return uint64(received);
     }
 
     /// @dev Backing must arrive and leave 1:1. Custom fees would skim escrow (fractional) or bill the shared pool
