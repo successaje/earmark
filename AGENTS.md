@@ -29,6 +29,14 @@ the contract: **eligibility** (`allocate`/`claim`), **spending** (`approveMercha
 labels; if you add category budgets, enforcement must live in a contract entry point, because a plain HTS transfer
 cannot say which budget it spends from.
 
+## SaucerSwap
+
+`createProgramWithHbar` swaps through SaucerSwap's V1 router (constructor arguments, set per chain in
+`script/Deploy.s.sol`). Keep the escrow equal to the *measured* balance increase, keep the funder's `minOut` floor,
+and associate the contract with the output token before swapping. The frontend quotes with `getAmountsOut`
+(`saucerSwapRouterAbi`) and needs `GAS.createProgramWithHbar`. `test/mocks/MockSaucerRouter.sol` can simulate a
+router that delivers less than it reports.
+
 ## Commands
 
 ```bash

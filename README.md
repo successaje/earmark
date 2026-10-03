@@ -31,6 +31,8 @@ What you get:
   keeper, cron job or admin — [here is the network running it](https://hashscan.io/testnet/transaction/1790969823.014089141).
 - **Proof of spend.** Funders' charters and merchants' itemised receipts are wallet-signed, anchored on the Hedera
   Consensus Service, and hash-linked to each redemption.
+- **Fund with HBAR.** No stablecoin? `createProgramWithHbar` swaps HBAR through **SaucerSwap** inside the same
+  transaction and escrows exactly what the swap delivered, guarded by the funder's slippage floor.
 - **A full working app and a one-command demo:** `yarn earmark:demo` plays every role on testnet and prints a
   HashScan link for each step.
 
@@ -99,6 +101,9 @@ you can replace:
 | **Evidence** | *What* proves good use? | Wallet-signed itemised receipts on HCS, hash bound to `redeem` | `utils/earmark/messages.ts`, `api/hcs` | Attachments on content-addressed storage (CID anchored on HCS), recipient co-signatures, encrypted line items |
 | **Settlement** | *Until when*, and then what? | HSS closes it at expiry: pay merchants, void leftovers, refund the funder | `settle`, `_close` | Roll over into the next period, redistribute, transfer to a successor program |
 
+Funding is a fifth, smaller seam: `createProgram` escrows a stablecoin the funder already holds, and
+`createProgramWithHbar` buys it with HBAR on SaucerSwap first. Both end in the same internal `_open`.
+
 Merchant **categories** are labels today: they describe a merchant to recipients and auditors, while enforcement is
 per merchant. Per-category budgets (e.g. Food $60 / Transport $25) need spending routed through the contract,
 because a plain token transfer cannot say which budget it draws from — see [Extending it](#extending-it).
@@ -157,6 +162,7 @@ sequenceDiagram
 | **Token Service** | Contract-created token; KYC key as the closed-loop allowlist; wipe on redemption; pause at close; HIP-719 association; HIP-218 ERC-20 facade; `transferFrom` for escrow | Vouchers could be sent anywhere. Purpose enforcement would be app code that any wallet bypasses. |
 | **Schedule Service** (HIP-1215) | `scheduleCall` at creation, `deleteSchedule` + reschedule on extension, self-continuation for batched settlement, `hasScheduleCapacity` probing | Nothing would ever close a program. Funds would sit until someone runs a keeper, and the funder could not get unspent money back without trusting one. |
 | **Consensus Service** | Public topic of wallet-signed charters and itemised receipts, hash-linked to `ProgramCreated` and `Redeemed` events | Donors would see that a merchant was paid, but not for what. Receipts would live in someone's database. |
+| **SaucerSwap** (V1 router) | `createProgramWithHbar` swaps HBAR into the backing stablecoin and escrows the measured output; the create page quotes it live with `getAmountsOut` | A funder must already hold the exact stablecoin, so most HBAR holders cannot fund a program at all. |
 | **Mirror node** | Association/KYC status, schedule execution, topic messages, contract logs | The dashboard could not show who can receive vouchers or prove that the network ran settlement. |
 
 Remove any one and the product stops being purpose-bound money: it becomes either a transferable token, a vault that
@@ -182,10 +188,15 @@ Open <http://localhost:3000>.
    "Get testnet HBAR" button opens the faucet.
 2. **Connect** on *Hedera Testnet* (chain id 296, RPC `https://testnet.hashio.io/api`). The connect button offers to
    add the network.
-3. **Create a program.** On *Create a program*, pick a template (Food assistance uses a 10-minute window), press
-   *Get 1,000 dUSD* (the testnet stand-in for USDC), then *Review program* → *Create program*. You sign the charter,
+3. **Create a program.** On *Create a program*, pick a template (Food assistance uses a 10-minute window). Either
+   press *Get 1,000 dUSD* (the testnet stand-in for USDC), or choose **Fund with → HBAR, swapped on SaucerSwap** and
+   enter an HBAR amount: the page shows SaucerSwap's live quote and your slippage floor. Then *Review program* →
+   *Create program*. You sign the charter,
    approve the escrow and confirm `createProgram`; the page shows each step as it completes.
-4. **Play the other roles.** Open the program page from a second and third wallet (or browser profile): each one
+4. **Play the other roles from one wallet.** As the funder, use *Play every role from one wallet* on the program page:
+   it creates a throwaway recipient and shop in your browser (funded with 10 HBAR each from your wallet) and walks
+   through activation, an allowance, a payment Hedera rejects, approval, a real payment and a receipt-backed payout.
+   Or play them by hand: Open the program page from a second and third wallet (or browser profile): each one
    presses *Activate wallet* in the *Join* card (HIP-719 association). Back as the funder, *Give allowances* to the
    first and *Approve where it can be spent* for the second. The recipient presses *Activate my funds* and pays; the
    merchant fills in a receipt and presses *Sign receipt & get paid*. Try *Try to break the rules* to watch Hedera
@@ -255,6 +266,11 @@ yarn earmark:setup
 yarn start
 ```
 
+`Deploy.s.sol` wires Earmark to SaucerSwap's V1 router and WHBAR token for the network it deploys to (testnet
+`0.0.19264` / `0.0.15058`, mainnet `0.0.3045981` / `0.0.1456986`); anywhere else HBAR funding is disabled. The create
+page swaps into `swapBackingTokenId` from `utils/earmark/network.ts` (SaucerSwap's testnet USDC `0.0.5449`, Circle
+USDC on mainnet).
+
 Contract creation is split from setup because Forge simulates scripts on a local EVM before broadcasting, and that
 EVM has no Hedera system contracts. Deployment only deploys bytecode; `earmark:setup` performs the HTS and HCS work
 against the real network.
@@ -321,6 +337,7 @@ Active ──(expiry; network calls settle)──► Settling ──(last mercha
 | Function | Caller | Effect |
 | --- | --- | --- |
 | `createProgram(params)` payable | funder | escrow, create voucher, schedule settlement |
+| `createProgramWithHbar(params, hbarIn, minOut)` payable | funder | swap HBAR on SaucerSwap, escrow what arrived, then as above |
 | `allocate(id, who[], amount[])` / `deallocate` | funder | reserve vouchers for beneficiaries |
 | `approveMerchant(id, merchant, category)` | funder | grant KYC to a merchant |
 | `removeMerchant(id, merchant)` | funder | pay out, then revoke KYC |
@@ -370,6 +387,10 @@ These are worth knowing before you build anything on HTS and HSS:
   HIP-719 `associate()` on the token address — a contract cannot do it for them.
 - **Contract-created tokens refund unused creation fees** to the creating contract, which is how the reserve is
   measured.
+- **Swapping from a contract.** The contract associates itself with the output token before calling the router
+  (the router cannot do it), passes the WHBAR *token* (0.0.15058 on testnet) rather than the WHBAR contract in the
+  path, sends the HBAR as tinybars of `msg.value`, and escrows the balance difference it measures — never the
+  router's return value. Testnet pool prices are not real prices; only the slippage floor protects the funder.
 - **One stuck account must not jam settlement.** A merchant can dissociate from the stablecoin or the voucher, and a
   funder can be a contract that rejects HBAR. Settlement never reverts on any of it: rejected payouts are parked in
   `owed`, rejected HBAR refunds in `hbarOwed`, a merchant whose wipe fails is skipped, KYC revocation is best-effort,
@@ -390,6 +411,8 @@ Earmark is small enough to read in an afternoon and touches most of what is diff
   hash-linking messages to contract events, the 1,024-byte chunk limit.
 - **Mirror node indexing:** token relationships, token keys, schedules, topic messages and contract logs — and its
   limits, such as needing a timestamp range to filter logs by topic.
+- **DeFi composition:** calling SaucerSwap's router from a contract with HBAR value, quoting with `getAmountsOut`,
+  and guarding a swap with a measured minimum output.
 - **Long-zero addresses, response codes and gas:** converting `0.0.x` ↔ EVM, reading `int64` response codes, and
   setting explicit gas because HTS fees are charged as gas.
 - **Testing system contracts:** emulating `0x167`/`0x16b` with real response codes, replaying schedules, and
@@ -466,7 +489,8 @@ Each of these slots into one of [the four policies](#the-four-policies) without 
 | **Merchant registry** | Spending | Approve merchants once across programs, or approve "any merchant holding a FOOD credential" |
 | **Rich evidence** | Evidence | Store invoices or photos on content-addressed storage and anchor the CID and hash on HCS; recipient co-signatures |
 | **Paid receipt topics** | Evidence | HIP-991 custom fees so merchants fund their own HCS messages |
-| **Fund with any asset** | Funding | Swap HBAR or other tokens into the backing token through a DEX such as SaucerSwap before escrow |
+| **Fund with any token** | Funding | Extend `createProgramWithHbar` to `swapExactTokensForTokens` so SAUCE or other HTS tokens can fund a program |
+| **Merchant payout in any asset** | Settlement | Swap a merchant's redemption into HBAR or another token on SaucerSwap at payout time |
 | **Recurring and successor programs** | Settlement | Have `settle` create the next period's program, rolling over or redistributing unspent funds |
 | **Separate roles** | All | Distinct funder, administrator and auditor accounts for institutional programs |
 
