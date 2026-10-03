@@ -1401,7 +1401,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hiero-ledger/sdk@npm:^2.80.0":
+"@hiero-ledger/sdk@npm:2.80.0":
   version: 2.80.0
   resolution: "@hiero-ledger/sdk@npm:2.80.0"
   dependencies:
@@ -2715,7 +2715,7 @@ __metadata:
   resolution: "@sh/nextjs@workspace:packages/nextjs"
   dependencies:
     "@heroicons/react": ^2.1.5
-    "@hiero-ledger/sdk": ^2.80.0
+    "@hiero-ledger/sdk": 2.80.0
     "@rainbow-me/rainbowkit": 2.2.9
     "@react-native-async-storage/async-storage": ^2.2.0
     "@scaffold-hbar-ui/components": ^2.0.0
