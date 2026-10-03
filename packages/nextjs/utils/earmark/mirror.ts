@@ -1,6 +1,7 @@
 import { type Abi, type Address, type Hex, decodeEventLog } from "viem";
 import { type Envelope, envelopeSchema } from "~~/utils/earmark/messages";
 import { entityIdFromAddress, hederaNetwork } from "~~/utils/earmark/network";
+import { describeResponseCode, responseCodeFromRevertData } from "~~/utils/earmark/responseCodes";
 
 /**
  * Read-only access to the Hedera mirror node. Everything the dashboard shows about token relationships (association,
@@ -192,4 +193,30 @@ export async function fetchContractEvents(
     next = data.links.next ? `${hederaNetwork(chainId).mirrorNode}${data.links.next}` : null;
   }
   return events;
+}
+
+/**
+ * Why a transaction failed, in words: the Hedera response code a system contract returned, or the decoded revert
+ * string. The mirror node can lag a few seconds behind the receipt, so this retries briefly.
+ */
+export async function fetchRevertReason(chainId: number, hash: Hex): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const data = await mirrorGet<{ actions: { result_data_type: string; result_data: string }[] }>(
+      chainId,
+      `/api/v1/contracts/results/${hash}/actions`,
+    ).catch(() => null);
+    const failure = data?.actions.find(a => a.result_data_type !== "OUTPUT");
+    if (failure) {
+      const code = responseCodeFromRevertData(failure.result_data);
+      if (code !== null) return describeResponseCode(code);
+      const bytes =
+        failure.result_data
+          .slice(2)
+          .match(/../g)
+          ?.map(b => parseInt(b, 16)) ?? [];
+      return new TextDecoder().decode(Uint8Array.from(bytes)).replace(/[^\x20-\x7e]/g, "") || "reverted";
+    }
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }
+  return "reverted";
 }

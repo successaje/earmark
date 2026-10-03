@@ -4,8 +4,8 @@ import { type PrivateKeyAccount, privateKeyToAccount } from "viem/accounts";
 import { hedera, hederaTestnet } from "viem/chains";
 import { type HcsConfig, createOperatorClient, readHcsConfig } from "~~/services/earmark/hcs";
 import { earmarkDeployment, hederaPublicClient } from "~~/utils/earmark/contracts";
+import { fetchRevertReason } from "~~/utils/earmark/mirror";
 import { hederaNetwork } from "~~/utils/earmark/network";
-import { describeResponseCode, responseCodeFromRevertData } from "~~/utils/earmark/responseCodes";
 
 /** Shared plumbing for the CLI scripts: env loading, operator clients, and transaction helpers that print proof. */
 
@@ -72,7 +72,7 @@ export async function send(write: Write) {
   if (reverted && !write.expectRevert) fail(`${write.label} reverted: ${await txUrl(hash)}`);
   const marker = reverted ? "✗ rejected" : "✓";
   console.log(`  ${marker} ${write.label}\n      ${await txUrl(hash)}`);
-  if (reverted) console.log(`      reason: ${await mirrorError(hash)}`);
+  if (reverted) console.log(`      reason: ${await fetchRevertReason(chain.id, hash)}`);
 
   return { hash, reverted, events: parseEventLogs({ abi: write.abi, logs: receipt.logs }) };
 }
@@ -89,16 +89,6 @@ export async function txUrl(hash: Hex): Promise<string> {
     await sleep(1500);
   }
   return `${network.hashscan}/tx/${hash}`;
-}
-
-async function mirrorError(hash: Hex): Promise<string> {
-  const res = await fetch(`${hederaNetwork(chain.id).mirrorNode}/api/v1/contracts/results/${hash}/actions`);
-  if (!res.ok) return "unknown";
-  const { actions } = (await res.json()) as { actions: { result_data_type: string; result_data: string }[] };
-  const failure = actions.find(a => a.result_data_type !== "OUTPUT");
-  if (!failure) return "contract reverted";
-  const code = responseCodeFromRevertData(failure.result_data);
-  return code === null ? Buffer.from(failure.result_data.slice(2), "hex").toString("utf8") : describeResponseCode(code);
 }
 
 export function sleep(ms: number) {

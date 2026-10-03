@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AssociateStep } from "./AssociateStep";
 import { BeneficiaryPanel } from "./BeneficiaryPanel";
+import { DemoActors } from "./DemoActors";
 import { FunderPanel } from "./FunderPanel";
 import { DeveloperPanel } from "./Guarantees";
 import { Activity, Merchants, Receipts } from "./Ledger";
@@ -46,6 +47,9 @@ export function ProgramDashboard({ id }: { id: bigint }) {
     <div className="flex flex-col gap-6">
       <Overview ctx={ctx} />
       {ctx.me && role.isFunder && <FunderPanel ctx={ctx} />}
+      {ctx.me && role.isFunder && ctx.status === "Active" && Date.now() / 1000 < Number(ctx.program.expiry) && (
+        <DemoActors ctx={ctx} />
+      )}
       {ctx.me && role.isBeneficiary && <BeneficiaryPanel ctx={ctx} />}
       {ctx.me && (role.isMerchant || role.owed > 0n) && <MerchantPanel ctx={ctx} />}
       {ctx.me && !hasRole && ctx.status === "Active" && <Join ctx={ctx} />}
