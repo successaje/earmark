@@ -1,6 +1,6 @@
 import { ArrowDownIcon } from "@heroicons/react/24/outline";
 
-const REJECTED_TX = "https://hashscan.io/testnet/transaction/1790969589.044793104";
+const REJECTED_TX = "https://hashscan.io/testnet/transaction/1791029115.235616669";
 
 /** The whole primitive on one card: fund, give, spend, a transfer Hedera refuses, and the automatic return. */
 export function Mechanism() {

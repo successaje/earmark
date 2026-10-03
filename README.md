@@ -26,9 +26,9 @@ What you get:
 
 - **Restricted destinations, enforced by the network.** The program credit is an HTS token whose KYC key belongs to
   the contract. A wallet, a bot or a modified frontend cannot send it anywhere unapproved —
-  [here is Hedera refusing](https://hashscan.io/testnet/transaction/1790969589.044793104).
+  [here is Hedera refusing](https://hashscan.io/testnet/transaction/1791029115.235616669).
 - **Autonomous settlement.** The contract schedules its own close with the Hedera Schedule Service (HIP-1215). No
-  keeper, cron job or admin — [here is the network running it](https://hashscan.io/testnet/transaction/1790969823.014089141).
+  keeper, cron job or admin — [here is the network running it](https://hashscan.io/testnet/transaction/1791029364.055681104).
 - **Proof of spend.** Funders' charters and merchants' itemised receipts are wallet-signed, anchored on the Hedera
   Consensus Service, and hash-linked to each redemption.
 - **Fund with HBAR.** No stablecoin? `createProgramWithHbar` swaps HBAR through **SaucerSwap** inside the same
@@ -231,7 +231,7 @@ The recipient tries to send credit to a wallet outside the program. Expected: He
   ✓ Recipient pays the grocer 30 eFOOD
 
 4 · SPEND & PROVE
-  ✓ Receipt anchored as message #4 (20 dUSD)
+  ✓ Receipt anchored as message #8 (20 dUSD)
   ✓ Redeem 20 vouchers for dUSD, citing the receipt hash
 
 5 · WALK AWAY
@@ -239,7 +239,7 @@ No keeper. No cron job. No admin call. Waiting for Hedera to run the settlement 
 
 6 · SETTLED
 Executed automatically by Hedera.
-  ✓ Schedule 0.0.10830515 executed at 2026-10-02T19:37:03.014Z
+  ✓ Schedule 0.0.10841598 executed at 2026-10-03T12:09:24.055Z
   ✓ Merchant holds 30 dUSD (20 redeemed by hand + 10 settled automatically)
   ✓ Funder refunded 70 dUSD (unallocated + unspent)
   ✓ Voucher token is PAUSED: the beneficiary's 20 unspent vouchers are void
@@ -460,22 +460,30 @@ Shared deployment used by the template (Hedera testnet):
 
 | What | Id |
 | --- | --- |
-| Earmark contract | [`0.0.10830254`](https://hashscan.io/testnet/contract/0.0.10830254) |
-| DemoDollar faucet | [`0.0.10830258`](https://hashscan.io/testnet/contract/0.0.10830258) · token [`0.0.10830483`](https://hashscan.io/testnet/token/0.0.10830483) |
+| Earmark contract (wired to SaucerSwap) | [`0.0.10841322`](https://hashscan.io/testnet/contract/0.0.10841322) |
+| DemoDollar faucet | [`0.0.10841325`](https://hashscan.io/testnet/contract/0.0.10841325) · token [`0.0.10841362`](https://hashscan.io/testnet/token/0.0.10841362) |
 | HCS topic | [`0.0.10828988`](https://hashscan.io/testnet/topic/0.0.10828988) |
+| SaucerSwap V1 router · WHBAR · USDC (testnet) | `0.0.19264` · `0.0.15058` · `0.0.5449` |
 
-A complete `yarn earmark:demo` run (program #1):
+**A complete `yarn earmark:demo` run** (program #3, funded with dUSD):
 
 | Step | Proof |
 | --- | --- |
-| Charter anchored on HCS | [topic message #3](https://hashscan.io/testnet/topic/0.0.10828988) |
-| `createProgram`: escrow + voucher creation + scheduling | [tx](https://hashscan.io/testnet/transaction/1790969523.044402226) · voucher [`0.0.10830514`](https://hashscan.io/testnet/token/0.0.10830514) · schedule [`0.0.10830515`](https://hashscan.io/testnet/schedule/0.0.10830515) |
-| Beneficiary associates (HIP-719) and claims (KYC grant + transfer) | [associate](https://hashscan.io/testnet/transaction/1790969541.704291104) · [claim](https://hashscan.io/testnet/transaction/1790969552.024900675) |
-| Merchant approved (KYC grant) | [tx](https://hashscan.io/testnet/transaction/1790969569.344741234) |
-| Transfer to a non-enrolled account, **rejected by the network** with `ACCOUNT_KYC_NOT_GRANTED_FOR_TOKEN` | [tx](https://hashscan.io/testnet/transaction/1790969589.044793104) |
-| Beneficiary pays merchant | [tx](https://hashscan.io/testnet/transaction/1790969599.904313104) |
-| Redemption citing an itemised HCS receipt (message #4) | [tx](https://hashscan.io/testnet/transaction/1790969615.051066135) |
-| **Settlement executed by the network at expiry, paid by the contract** (`0.0.10830254`) | [tx](https://hashscan.io/testnet/transaction/1790969823.014089141) |
+| Charter anchored on HCS | [topic message #7](https://hashscan.io/testnet/topic/0.0.10828988) |
+| `createProgram`: escrow + voucher creation + scheduling | [tx](https://hashscan.io/testnet/transaction/1791029061.415448104) · voucher [`0.0.10841597`](https://hashscan.io/testnet/token/0.0.10841597) · schedule [`0.0.10841598`](https://hashscan.io/testnet/schedule/0.0.10841598) |
+| Recipient activates (HIP-719) and claims (KYC grant + transfer) | [associate](https://hashscan.io/testnet/transaction/1791029075.815451849) · [claim](https://hashscan.io/testnet/transaction/1791029083.614679603) |
+| Merchant approved (KYC grant) | [tx](https://hashscan.io/testnet/transaction/1791029101.988912611) |
+| Transfer to an unapproved account, **rejected by the network** with `ACCOUNT_KYC_NOT_GRANTED_FOR_TOKEN` | [tx](https://hashscan.io/testnet/transaction/1791029115.235616669) |
+| Recipient pays merchant | [tx](https://hashscan.io/testnet/transaction/1791029122.556390182) |
+| Redemption citing an itemised HCS receipt (message #8) | [tx](https://hashscan.io/testnet/transaction/1791029131.855719195) |
+| **Settlement executed by the network at expiry, paid by the contract** | [tx](https://hashscan.io/testnet/transaction/1791029364.055681104) |
+
+**Funded with HBAR through SaucerSwap:**
+
+| Run | Proof |
+| --- | --- |
+| Program #1 (CLI): 20 HBAR swapped to 44.855468 USDC inside `createProgramWithHbar`, then closed by the network and refunded in full | [swap + create](https://hashscan.io/testnet/transaction/1791027543.804676344) · [settlement](https://hashscan.io/testnet/transaction/1791027726.084434883) |
+| Program #2 (browser, one wallet): created through *Fund with → HBAR*, every role played from the demo panel, payment rejected by Hedera, receipt-backed payout, then settled by the network (15 USDC to the shop, 29.84 refunded) | [swap + create](https://hashscan.io/testnet/transaction/1791028789.016043547) · [settlement](https://hashscan.io/testnet/transaction/1791029391.054862782) |
 
 ## Extending it
 
