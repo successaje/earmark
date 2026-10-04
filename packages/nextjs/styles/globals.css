@@ -47,10 +47,15 @@
   --color-base-200: #f7f7f8;
   --color-base-300: #e8e8ec;
   --color-base-content: #11151d;
-  --color-info: #2d84eb;
-  --color-success: #34eeb6;
-  --color-warning: #ffcf72;
-  --color-error: #ff8863;
+  /* Darker than the dark theme's status colours so they stay readable as text on white (WCAG AA, 4.5:1). */
+  --color-info: #1d6fd8;
+  --color-info-content: #ffffff;
+  --color-success: #047857;
+  --color-success-content: #ffffff;
+  --color-warning: #a15c07;
+  --color-warning-content: #ffffff;
+  --color-error: #c2410c;
+  --color-error-content: #ffffff;
 
   --radius-field: 9999rem;
   --radius-box: 1rem;
@@ -149,4 +154,41 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* Inactive tabs default to half-strength text, which is too faint on white. */
+.tabs-box .tab:not(.tab-active) {
+  color: color-mix(in oklab, var(--color-base-content) 75%, transparent);
+}
+
+/*
+  @scaffold-hbar-ui/debug-contracts is dark-first: its "content" colour is always white, so in the light theme its
+  secondary buttons, variable values and labels render white on light grey. Swap those to the base text colour.
+  Elements that sit on the primary colour (tooltips, hover states) keep their white text.
+*/
+:root:not([data-theme="dark"]) .btn-dc-secondary,
+:root:not([data-theme="dark"]) .text-sui-primary-content:not(.bg-sui-primary),
+:root:not([data-theme="dark"]) .hover\:bg-sui-primary-content\/\[0\.12\]:hover {
+  color: var(--color-sui-base-content);
+}
+:root:not([data-theme="dark"]) .text-sui-primary-content\/80 {
+  color: color-mix(in oklab, var(--color-sui-base-content) 80%, transparent);
+}
+:root:not([data-theme="dark"]) .text-sui-primary-content\/60 {
+  color: color-mix(in oklab, var(--color-sui-base-content) 65%, transparent);
+}
+:root:not([data-theme="dark"]) .text-sui-primary-content\/50 {
+  color: color-mix(in oklab, var(--color-sui-base-content) 60%, transparent);
+}
+:root:not([data-theme="dark"]) .text-sui-primary-content\/40 {
+  color: color-mix(in oklab, var(--color-sui-base-content) 55%, transparent);
+}
+:root:not([data-theme="dark"]) .text-sui-base-content\/55 {
+  color: color-mix(in oklab, var(--color-sui-base-content) 72%, transparent);
+}
+:root:not([data-theme="dark"]) .bg-sui-primary-content\/\[0\.06\] {
+  background-color: color-mix(in oklab, var(--color-sui-base-content) 6%, transparent);
+}
+:root:not([data-theme="dark"]) .hover\:bg-sui-primary-content\/\[0\.12\]:hover {
+  background-color: color-mix(in oklab, var(--color-sui-base-content) 12%, transparent);
 }

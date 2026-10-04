@@ -44,7 +44,7 @@ export const HeaderMenuLinks = () => {
               href={href}
               passHref
               className={`${
-                isActive ? "bg-primary/10 text-primary font-semibold" : "hover:bg-primary/5"
+                isActive ? "bg-primary/10 text-primary dark:text-[#b7a4ff] font-semibold" : "hover:bg-primary/5"
               } py-1.5 px-3 text-sm rounded-full gap-2 grid grid-flow-col transition-colors`}
             >
               {icon}
@@ -89,7 +89,7 @@ export const Header = () => {
           </div>
           <div className="flex flex-col">
             <span className="font-bold leading-tight text-base">Earmark</span>
-            <span className="text-[10px] tracking-wider uppercase text-base-content/50 font-medium">
+            <span className="text-[10px] tracking-wider uppercase text-base-content/70 font-medium">
               Purpose-bound money
             </span>
           </div>

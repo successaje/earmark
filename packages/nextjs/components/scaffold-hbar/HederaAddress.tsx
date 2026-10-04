@@ -61,7 +61,7 @@ export const HederaAddress = ({ address, chain, format, disableAddressLink }: He
         </button>
       </div>
       {isLoading ? (
-        <span className="text-xs text-base-content/60 animate-pulse">Resolving Hedera Account ID…</span>
+        <span className="text-xs text-base-content/70 animate-pulse">Resolving Hedera Account ID…</span>
       ) : accountId ? (
         <span className="text-xs text-base-content/80">Hedera Account ID: {accountId}</span>
       ) : null}

@@ -26,7 +26,7 @@ export function Amount({
   return (
     <span className={`tabular-nums ${className}`}>
       {formatAmount(value, decimals)}
-      {symbol ? <span className="opacity-60 font-normal"> {symbol}</span> : null}
+      {symbol ? <span className="opacity-90 font-normal"> {symbol}</span> : null}
     </span>
   );
 }
