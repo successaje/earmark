@@ -3,25 +3,22 @@ import type { NextPage } from "next";
 import { getMetadata } from "~~/utils/scaffold-hbar/getMetadata";
 
 export const metadata = getMetadata({
-  title: "Debug Contracts",
-  description: "Debug your deployed 🏗 Scaffold-HBAR contracts in an easy way",
+  title: "Debug Contracts · Earmark",
+  description: "Read and call the deployed Earmark and DemoDollar contracts directly",
 });
 
 const Debug: NextPage = () => {
   return (
-    <>
-      <DebugContracts />
-      <div className="text-center mt-8 bg-secondary p-10">
-        <h1 className="text-4xl my-0">Debug Contracts</h1>
-        <p className="text-neutral">
-          You can debug & interact with your deployed contracts here.
-          <br /> Check{" "}
-          <code className="italic bg-base-300 text-base font-bold [word-spacing:-0.5rem] px-1">
-            packages / nextjs / app / debug / page.tsx
-          </code>{" "}
+    <div className="flex flex-col w-full overflow-x-clip">
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-6">
+        <h1 className="text-3xl font-bold m-0">Debug contracts</h1>
+        <p className="opacity-70 m-0 mt-1">
+          Read and call the deployed contracts directly. Built from{" "}
+          <code className="text-sm bg-base-300 px-1.5 py-0.5 rounded">packages/nextjs/app/debug</code>.
         </p>
       </div>
-    </>
+      <DebugContracts />
+    </div>
   );
 };
 
